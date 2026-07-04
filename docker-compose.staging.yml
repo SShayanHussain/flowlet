@@ -21,6 +21,13 @@ services:
     profiles: ["migrate"]
     restart: "no"
 
+  migrate-engine:
+    image: ghcr.io/${IMAGE_BASE}-migrate-engine:${IMAGE_TAG:-staging}
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    profiles: ["migrate"]
+    restart: "no"
+
   api:
     image: ghcr.io/${IMAGE_BASE}-api:${IMAGE_TAG:-staging}
     environment:

@@ -1,0 +1,15 @@
+# One-shot ENGINE migrator image. Build context = repo root.
+#   docker build -f api/Dockerfile.migrate -t flowlet-migrate-engine .
+# Runs on deploy AFTER the web shell migrator, BEFORE api/worker start.
+FROM node:20-alpine
+WORKDIR /app
+COPY package.json package-lock.json* ./
+COPY api/package.json ./api/
+COPY packages/shared/package.json ./packages/shared/
+RUN npm install --no-audit --no-fund
+
+COPY api/migrations ./api/migrations
+COPY api/scripts/migrate.mjs ./api/scripts/migrate.mjs
+
+WORKDIR /app/api
+CMD ["node", "scripts/migrate.mjs"]
