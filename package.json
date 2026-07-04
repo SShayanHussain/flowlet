@@ -1,0 +1,27 @@
+{
+  "name": "flowlet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Flowlet — AI-native workflow automation (trigger → action → AI-step → branch → output).",
+  "workspaces": [
+    "web",
+    "api",
+    "worker",
+    "packages/*"
+  ],
+  "comment:overrides": "Pin ioredis to BullMQ's exact version so there is ONE copy — a shared IORedis instance is then type-compatible with BullMQ (which otherwise nests its own ioredis).",
+  "overrides": {
+    "ioredis": "5.10.1"
+  },
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:web": "npm run dev -w @flowlet/web",
+    "dev:api": "npm run dev -w @flowlet/api",
+    "dev:worker": "npm run dev -w @flowlet/worker",
+    "db:generate": "npm run db:generate -w @flowlet/web",
+    "db:migrate": "npm run db:migrate -w @flowlet/web"
+  }
+}

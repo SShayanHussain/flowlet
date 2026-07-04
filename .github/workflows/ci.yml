@@ -1,0 +1,120 @@
+name: CI/CD
+
+# Branch flow (mandated): feature/* → PR → develop (staging) → main (production).
+# Required checks (test job) gate every PR; branch protection on develop + main.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Lint + typecheck + test across all workspaces. Runs on every push & PR.
+  #    This is the required status check for merging.
+  # ---------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test (incl. tenant-isolation + no-double-execution gates)
+        run: npm test
+
+  # ---------------------------------------------------------------------------
+  # 2. Build & push images to GHCR. Only on pushes to develop/main (not PRs).
+  #    Tag with BOTH the git SHA (rollback target) and an env tag (PLAYBOOK §3).
+  # ---------------------------------------------------------------------------
+  build-and-push:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lowercase image base
+        run: echo "IMAGE_BASE=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - name: Compute env tag
+        run: echo "ENV_TAG=${{ github.ref == 'refs/heads/main' && 'latest' || 'staging' }}" >> "$GITHUB_ENV"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build & push api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-api:${{ env.ENV_TAG }}
+      - name: Build & push worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: worker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-worker:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-worker:${{ env.ENV_TAG }}
+      - name: Build & push web
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          file: web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-web:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-web:${{ env.ENV_TAG }}
+      - name: Build & push migrate (one-shot migrator)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          file: web/Dockerfile.migrate
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-migrate:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-migrate:${{ env.ENV_TAG }}
+
+  # ---------------------------------------------------------------------------
+  # 3a. Deploy to STAGING automatically on develop.
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Deploy
+        run: echo "TODO: ssh → write escaped .env → docker compose -f docker-compose.staging.yml run --rm migrate → up -d. Infra not provisioned yet."
+
+  # ---------------------------------------------------------------------------
+  # 3b. Deploy to PRODUCTION on main — behind a MANUAL approval gate.
+  #     (GitHub Environment `production` with required reviewers.)
+  # ---------------------------------------------------------------------------
+  deploy-production:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy
+        run: echo "TODO: ssh (timeout 30m) → write .env with \$→\$\$ escaping → compose --profile migrate pull → run --rm migrate (set -e) → up -d --remove-orphans → docker image prune -af. Infra not provisioned yet."

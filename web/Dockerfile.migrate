@@ -1,0 +1,15 @@
+# One-shot database migrator image.
+# Runs `scripts/migrate.mjs` against RDS on deploy, then exits.
+# Kept separate from the runtime app image (which is a lean Next.js standalone
+# build that does not include drizzle-kit or the migration SQL files).
+FROM node:20-alpine
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+COPY drizzle.config.ts ./
+COPY scripts/migrate.mjs ./scripts/migrate.mjs
+COPY src/lib/db/migrations ./src/lib/db/migrations
+
+CMD ["node", "scripts/migrate.mjs"]

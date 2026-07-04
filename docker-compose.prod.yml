@@ -1,0 +1,101 @@
+# Flowlet — production stack. Pulls pre-built GHCR images (tagged by git SHA for
+# rollback). Env comes from a literal .env written on the host by the deploy job
+# (with $ escaped as $$ — PLAYBOOK §2). Postgres = managed RDS (via DATABASE_URL);
+# Redis stays a container early to keep costs down.
+#
+#   docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
+#   docker compose -f docker-compose.prod.yml up -d --remove-orphans
+services:
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # One-shot migrator — behind a profile so `up` never starts it, but deploy runs
+  # it explicitly BEFORE `up -d` with set -e (aborts the deploy on failure).
+  migrate:
+    image: ghcr.io/${IMAGE_BASE}-migrate:${IMAGE_TAG:-latest}
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    profiles: ["migrate"]
+    restart: "no"
+
+  api:
+    image: ghcr.io/${IMAGE_BASE}-api:${IMAGE_TAG:-latest}
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      QUEUE_PREFIX: ${QUEUE_PREFIX:-flowlet}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    image: ghcr.io/${IMAGE_BASE}-worker:${IMAGE_TAG:-latest}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      QUEUE_PREFIX: ${QUEUE_PREFIX:-flowlet}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
+      AI_QUEUE_CONCURRENCY: ${AI_QUEUE_CONCURRENCY:-5}
+      PER_USER_CONCURRENCY: ${PER_USER_CONCURRENCY:-3}
+      STEP_TIMEOUT_MS: ${STEP_TIMEOUT_MS:-30000}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/${IMAGE_BASE}-web:${IMAGE_TAG:-latest}
+    environment:
+      NODE_ENV: production
+      APP_URL: ${APP_URL}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redisdata:

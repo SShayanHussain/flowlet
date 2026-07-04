@@ -1,0 +1,139 @@
+# Flowlet — local development stack (mirrors prod topology).
+# Usage: docker compose up --build
+#
+# Boot order: db + redis healthy → migrate (one-shot) → api / worker / web → nginx.
+services:
+  # --- Postgres (plain 16 — no pgvector; Flowlet has no embeddings) ---
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: flowlet
+      POSTGRES_PASSWORD: flowlet
+      POSTGRES_DB: flowlet
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowlet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- Redis (cache + BullMQ) ---
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- One-shot migrator: applies shell migrations before anything starts ---
+  migrate:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgresql://flowlet:flowlet@db:5432/flowlet
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # --- API (Fastify): CRUD + trigger ingest + ENQUEUE. Never executes runs. ---
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://flowlet:flowlet@db:5432/flowlet
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: dev-access-secret-change-me-0123456789abc
+      QUEUE_PREFIX: flowlet
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # --- Worker (BullMQ): dequeues + walks the DAG. Scales independently. ---
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://flowlet:flowlet@db:5432/flowlet
+      REDIS_URL: redis://redis:6379
+      QUEUE_PREFIX: flowlet
+      WORKER_CONCURRENCY: 10
+      AI_QUEUE_CONCURRENCY: 5
+      PER_USER_CONCURRENCY: 3
+      STEP_TIMEOUT_MS: 30000
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # --- Web (Next.js): SaaS shell + auth (issues JWTs) + builder/runs UI ---
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      APP_URL: http://localhost
+      DATABASE_URL: postgresql://flowlet:flowlet@db:5432/flowlet
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: dev-access-secret-change-me-0123456789abc
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-me-0123456789abc
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # --- nginx: TLS (prod), routes UI vs API, first-line webhook rate limiting ---
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

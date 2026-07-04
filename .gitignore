@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# builds
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# env / secrets (never commit)
+.env
+.env.local
+.env.*.local
+web/.env
+
+# data volumes (local docker)
+.pgdata/
+.redisdata/
+pgdata/
+redisdata/
+
+# tests / coverage
+coverage/
+
+# logs
+*.log
+npm-debug.log*
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
