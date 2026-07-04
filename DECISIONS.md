@@ -101,3 +101,21 @@ baked in: literal `.env` with `$`→`$$` escaping, 30m SSH timeouts, `--profile 
 migrate (set -e) before `up -d`, `docker image prune -af`.
 Tradeoff: deploy jobs are scaffolded stubs until AWS infra is provisioned.
 Revisit when: provisioning ECS/EC2 + RDS — fill the deploy steps with the real host/secrets.
+
+## [2026-07-04] Execution engine — step-level DAG executor (Phase 1 design approved)
+Context: Phase 1 engine design (`docs/03-execution-engine-design.md`) reviewed + approved.
+Decision (4 points):
+ - **Step-level jobs**: one BullMQ job per node; the run is a Postgres state machine. Chosen over a
+   per-run job because only this gives true AI/slow-step isolation + per-step retry/timeout/fairness.
+ - **No double-execution = 3 idempotency layers**: trigger-dedupe (`ON CONFLICT DO NOTHING` at
+   ingest), join-safe step claim (atomic `pending→queued` `UPDATE…RETURNING` + BullMQ `jobId`),
+   output-side key + provider Idempotency-Key. Guarantee: at-least-once execution, exactly-once effects.
+ - **Fairness now**: crash-safe per-workspace Redis concurrency lease (cap `PER_USER_CONCURRENCY`).
+ - **Migrations**: engine schema in `packages/shared`; **api owns the engine migrator**; deploy runs
+   web shell migrator → api engine migrator.
+ - **CI**: real Postgres service container so the atomic-claim / no-double-execution tests actually
+   prove the invariant.
+Tradeoff: more orchestration (join nodes, enqueue-on-complete) + a second migrator + slower CI —
+accepted; it is the core system-design substance of the product.
+Revisit when: BullMQ-Pro groups replace the manual lease; or `runs`/`run_steps` volume forces
+partitioning (see the no-sharding entry).
