@@ -174,6 +174,28 @@ an unguessable `whk_<48hex>` token column (unique) instead of the raw workflow i
 Tradeoff: cron fires run at default 1 attempt — a failed fire (db blip) waits for the next tick
 rather than retrying. Revisit when: schedules are sparse (daily+) where a missed tick matters.
 
+## [2026-07-06] Web ↔ api: browser calls Fastify directly with a Bearer token
+Context: Phase 3 UI. web/ owns auth (issues JWTs, Next API routes); api/ owns the domain
+(workflows/runs/connections/dashboard). The builder/runs surfaces need those domain endpoints.
+Decision: domain pages are client components that call the Fastify api directly with
+`Authorization: Bearer <accessToken>` (token held in memory by the auth-provider) via a small
+`useApi()` client. Routing: prod/docker serve web+api on one nginx origin, so calls are relative
+(`/api/...`); standalone `npm run dev:web` sets `NEXT_PUBLIC_API_URL=http://localhost:3001`
+(CORS open on api). Auth routes (`/api/auth/*`) always stay on web, called relative.
+Tradeoff: two origins in standalone dev (handled by env + CORS); credentials never returned to the
+client (connections list is metadata-only).
+Revisit when: SSR of domain data is wanted → add a server-side proxy that forwards the cookie.
+
+## [2026-07-06] Builder canvas = React Flow (@xyflow/react); Flowlet gets its own theme
+Context: the node-graph builder is the PRD's signature surface ("Retool/n8n polish"); and the
+copied P1 shell still wore Deflekt's slate theme — Flowlet had no identity of its own.
+Decision: (a) React Flow (@xyflow/react, user-approved dep) for the canvas — pan/zoom, drag-connect,
+typed node components, minimap; graph ⇄ React Flow mapping keeps node positions in `graph.nodes[].position`
+(the engine ignores it). (b) A distinct Flowlet theme: light indigo-violet app shell + a dedicated
+DARK node-editor canvas (`--canvas*` tokens, React Flow `colorMode="dark"`), matching the PRD's
+"dark-canvas editor in a light shell"; new node-merge logo mark + indigo→cyan brand gradient.
+Tradeoff: React Flow is a sizable client dep (web only). Revisit: n/a — core to the product.
+
 ## [2026-07-06] Builder UI: React Flow; web calls the Fastify api directly with the Bearer token
 Context: Phase 3 net-new UI. Node-graph canvas is the signature surface.
 Decision:

@@ -230,9 +230,10 @@ export function BuilderCanvas({ initial }: { initial?: Workflow }) {
           ))}
         </div>
 
-        {/* Canvas */}
-        <div className="flex-1 min-w-0">
+        {/* Canvas — the signature dark node editor (PRD) */}
+        <div className="flex-1 min-w-0 bg-canvas">
           <ReactFlow
+            colorMode="dark"
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
@@ -252,11 +253,13 @@ export function BuilderCanvas({ initial }: { initial?: Workflow }) {
               setSelectedEdgeId(null);
             }}
             fitView
+            defaultEdgeOptions={{ animated: true, style: { stroke: "hsl(252 83% 66%)", strokeWidth: 2 } }}
+            style={{ backgroundColor: "hsl(var(--canvas))" }}
             proOptions={{ hideAttribution: true }}
           >
-            <Background />
+            <Background color="hsl(var(--canvas-line))" gap={22} size={1.5} />
             <Controls />
-            <MiniMap pannable zoomable className="!bg-muted" />
+            <MiniMap pannable zoomable nodeColor="hsl(252 83% 60%)" maskColor="hsl(244 34% 6% / 0.7)" />
           </ReactFlow>
         </div>
 
