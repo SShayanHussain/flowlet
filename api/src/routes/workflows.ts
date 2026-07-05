@@ -6,34 +6,19 @@ import {
   err,
   GraphValidationError,
   ok,
-  runSteps,
   syncCronSchedule,
   validateGraph,
-  workflowRuns,
   workflows,
-  type CronSchedulerQueue,
-  type Db,
-  type EngineQueues,
   type WorkflowGraph,
 } from "@flowlet/shared";
-import { requireAuth } from "./auth";
-
-export interface ApiContext {
-  db: Db;
-  queues: EngineQueues;
-  /** Optional: cron trigger sync is skipped when absent (unit tests). */
-  cronQueue?: CronSchedulerQueue;
-}
+import { requireAuth } from "../auth";
+import type { ApiContext } from "./index";
 
 function newWebhookToken(): string {
   return `whk_${randomBytes(24).toString("hex")}`;
 }
 
-/**
- * Domain routes. HARD RULE (CLAUDE.md): nothing here executes a run — trigger
- * endpoints persist + enqueue via createRun; the worker does the rest.
- */
-export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
+export function registerWorkflowRoutes(app: FastifyInstance, ctx: ApiContext) {
   const deps = { db: ctx.db, queues: ctx.queues };
   const { db } = ctx;
 
@@ -42,7 +27,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
     await syncCronSchedule(ctx.cronQueue, wf);
   }
 
-  // --- Workflows (tenant-scoped by the verified JWT's workspaceId) ----------
+  // List — tenant-scoped by the verified JWT's workspaceId.
   app.get("/api/workflows", { preHandler: requireAuth }, async (request) => {
     const rows = await db
       .select()
@@ -50,6 +35,17 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
       .where(eq(workflows.workspaceId, request.auth!.workspaceId))
       .orderBy(desc(workflows.updatedAt));
     return ok({ workflows: rows });
+  });
+
+  app.get("/api/workflows/:id", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [wf] = await db
+      .select()
+      .from(workflows)
+      .where(and(eq(workflows.id, id), eq(workflows.workspaceId, request.auth!.workspaceId)))
+      .limit(1);
+    if (!wf) return reply.code(404).send(err("NOT_FOUND", "Workflow not found"));
+    return ok({ workflow: wf });
   });
 
   app.post("/api/workflows", { preHandler: requireAuth }, async (request, reply) => {
@@ -60,9 +56,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
     try {
       validateGraph(body.graph);
     } catch (e) {
-      if (e instanceof GraphValidationError) {
-        return reply.code(400).send(err("INVALID_GRAPH", e.message));
-      }
+      if (e instanceof GraphValidationError) return reply.code(400).send(err("INVALID_GRAPH", e.message));
       throw e;
     }
     const [wf] = await db
@@ -101,9 +95,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
       try {
         validateGraph(body.graph);
       } catch (e) {
-        if (e instanceof GraphValidationError) {
-          return reply.code(400).send(err("INVALID_GRAPH", e.message));
-        }
+        if (e instanceof GraphValidationError) return reply.code(400).send(err("INVALID_GRAPH", e.message));
         throw e;
       }
     }
@@ -112,9 +104,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
       .update(workflows)
       .set({
         ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.graph !== undefined
-          ? { graph: body.graph, version: sql`${workflows.version} + 1` }
-          : {}),
+        ...(body.graph !== undefined ? { graph: body.graph, version: sql`${workflows.version} + 1` } : {}),
         ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
         updatedAt: new Date(),
       })
@@ -129,7 +119,42 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
     return ok({ workflow: wf });
   });
 
-  // --- Manual trigger --------------------------------------------------------
+  app.delete("/api/workflows/:id", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [deleted] = await db
+      .delete(workflows)
+      .where(and(eq(workflows.id, id), eq(workflows.workspaceId, request.auth!.workspaceId)))
+      .returning({ id: workflows.id });
+    if (!deleted) return reply.code(404).send(err("NOT_FOUND", "Workflow not found"));
+    // Tear down any cron scheduler for the deleted workflow.
+    if (ctx.cronQueue) await syncCronSchedule(ctx.cronQueue, { id, enabled: false, graph: { nodes: [], edges: [] } });
+    return ok({ deleted: true });
+  });
+
+  app.post("/api/workflows/:id/duplicate", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [src] = await db
+      .select()
+      .from(workflows)
+      .where(and(eq(workflows.id, id), eq(workflows.workspaceId, request.auth!.workspaceId)))
+      .limit(1);
+    if (!src) return reply.code(404).send(err("NOT_FOUND", "Workflow not found"));
+
+    // Copies start disabled — a duplicate should never silently start firing.
+    const [copy] = await db
+      .insert(workflows)
+      .values({
+        workspaceId: src.workspaceId,
+        name: `${src.name} (copy)`,
+        graph: src.graph,
+        enabled: false,
+        webhookToken: newWebhookToken(),
+      })
+      .returning();
+    return reply.code(201).send(ok({ workflow: copy }));
+  });
+
+  // Manual trigger. Optional Idempotency-Key header dedupes accidental resubmits.
   app.post("/api/workflows/:id/run", { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const [wf] = await db
@@ -148,22 +173,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
     return reply.code(202).send(ok({ runId: result.runId, deduplicated: !result.created }));
   });
 
-  // --- Run trace -------------------------------------------------------------
-  app.get("/api/runs/:id", { preHandler: requireAuth }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const [run] = await db
-      .select()
-      .from(workflowRuns)
-      .where(and(eq(workflowRuns.id, id), eq(workflowRuns.workspaceId, request.auth!.workspaceId)))
-      .limit(1);
-    if (!run) return reply.code(404).send(err("NOT_FOUND", "Run not found"));
-    const steps = await db.select().from(runSteps).where(eq(runSteps.runId, id));
-    return ok({ run, steps });
-  });
-
-  // --- Inbound webhook trigger (public; rate-limited at nginx) ---------------
-  // Addressed by the workflow's unguessable token (whk_…), never the raw id.
-  // X-Delivery-Id gives the trigger event its identity for dedupe (layer 1).
+  // Inbound webhook trigger (public; rate-limited at nginx). Addressed by the
+  // workflow's unguessable token, never the raw id. X-Delivery-Id → layer-1 dedupe.
   app.post("/api/webhooks/:token", async (request, reply) => {
     const { token } = request.params as { token: string };
     if (!/^whk_[0-9a-f]{48}$/i.test(token)) {

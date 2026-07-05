@@ -173,3 +173,21 @@ yields one run, and disabled/deleted workflows are re-checked at fire time. Webh
 an unguessable `whk_<48hex>` token column (unique) instead of the raw workflow id.
 Tradeoff: cron fires run at default 1 attempt — a failed fire (db blip) waits for the next tick
 rather than retrying. Revisit when: schedules are sparse (daily+) where a missed tick matters.
+
+## [2026-07-06] Builder UI: React Flow; web calls the Fastify api directly with the Bearer token
+Context: Phase 3 net-new UI. Node-graph canvas is the signature surface.
+Decision:
+ - **React Flow (@xyflow/react)** for the builder canvas (user-approved dep) — pan/zoom, drag-connect,
+   custom typed nodes, minimap. Node position is stored on each graph node (`position`), which the
+   engine ignores (validateGraph reads id/type only) so the UI layout rides in the same jsonb.
+ - **web → api** domain calls go browser-direct with `Authorization: Bearer <accessToken>` via a
+   `useApi()` client (src/lib/api-client.ts). Base URL = `NEXT_PUBLIC_API_URL` — empty in prod / docker
+   (same origin, nginx routes `/api/*`→api, `/api/auth`+`/api/workspaces`→web), `http://localhost:3001`
+   for standalone `npm run dev:web`. Auth routes stay on web and are called relative. All builder/runs/
+   connections/dashboard pages are client components gated on `accessToken` (held in memory by the
+   AuthProvider) — no domain data is server-rendered.
+ - Edge `when` guards edited on the canvas drive branch routing; connection credentials collected as
+   header key/values, POSTed once, encrypted server-side, never returned.
+Tradeoff: client-side data fetch (no SSR for domain pages) means a brief loader on each surface;
+acceptable for an authenticated app behind a memory-held token.
+Revisit when: we want SSR/streaming for the runs list, or a second api consumer needs the client.

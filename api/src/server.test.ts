@@ -14,16 +14,19 @@ async function makeToken() {
     .sign(new TextEncoder().encode(SECRET));
 }
 
-/** Minimal drizzle-shaped fake: every chain method returns the chain; terminal
- *  methods resolve `rows`. Enough for the route handlers' select/insert chains. */
+/** Minimal drizzle-shaped fake: every builder method returns the (thenable)
+ *  chain, so awaiting at any terminal (`.limit()`, `.returning()`, `.orderBy()`,
+ *  `.execute()`, or a bare `.where()`) resolves the same `rows`. Enough for the
+ *  route handlers' select/insert/update/delete chains; multi-query handlers
+ *  (dashboard, createRun transactions) are covered by the integration suite. */
 function fakeDb(rows: unknown[] = []): Db {
   const chain: Record<string, unknown> = {};
-  for (const m of ["select", "from", "where", "insert", "values"]) {
-    chain[m] = () => chain;
-  }
-  chain.orderBy = () => Promise.resolve(rows);
-  chain.limit = () => Promise.resolve(rows);
-  chain.returning = () => Promise.resolve(rows);
+  const methods = [
+    "select", "from", "where", "innerJoin", "insert", "values",
+    "update", "set", "delete", "orderBy", "limit", "returning", "execute",
+  ];
+  for (const m of methods) chain[m] = () => chain;
+  chain.then = (resolve: (v: unknown) => void) => resolve(rows);
   return chain as unknown as Db;
 }
 
@@ -146,6 +149,70 @@ describe("api server", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("INVALID_GRAPH");
+    await app.close();
+  });
+
+  it("duplicates a workflow as a disabled copy (201)", async () => {
+    const app = buildServer(ctx([{ id: "wf-2", name: "test (copy)", enabled: false }]));
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/workflows/wf-1/duplicate",
+      headers: { authorization: `Bearer ${await makeToken()}` },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.workflow.enabled).toBe(false);
+    await app.close();
+  });
+
+  it("404s deleting a workflow in another workspace", async () => {
+    const app = buildServer(ctx([])); // returning() → [] → not found
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/api/workflows/wf-x",
+      headers: { authorization: `Bearer ${await makeToken()}` },
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("lists runs for the workspace", async () => {
+    const app = buildServer(ctx([{ id: "run-1", status: "succeeded" }]));
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/runs?limit=10",
+      headers: { authorization: `Bearer ${await makeToken()}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.runs).toHaveLength(1);
+    await app.close();
+  });
+
+  it("requires name/type/credentials to create a connection (400)", async () => {
+    const app = buildServer({ db: undefined as unknown as Db, queues: noQueues });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/connections",
+      headers: { authorization: `Bearer ${await makeToken()}` },
+      payload: { name: "only-name" },
+    });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("creates a connection and never echoes credentials back", async () => {
+    process.env.CREDENTIALS_ENC_KEY = "test-connection-key-please-change";
+    const app = buildServer(ctx([{ id: "conn-1", type: "http", name: "Stripe" }]));
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/connections",
+      headers: { authorization: `Bearer ${await makeToken()}` },
+      payload: { name: "Stripe", type: "http", credentials: { apiKey: "sk_live_secret" } },
+    });
+    expect(res.statusCode).toBe(201);
+    const bodyText = res.body;
+    expect(bodyText).not.toContain("sk_live_secret");
+    expect(bodyText).not.toContain("credentialsEncrypted");
+    expect(res.json().data.connection.id).toBe("conn-1");
     await app.close();
   });
 });

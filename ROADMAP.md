@@ -29,11 +29,11 @@
 - [x] Output node (real send, Idempotency-Key header, claim released on clean failure / kept on crash)
 
 ## Phase 3 — Builder UI + surfaces
-- [ ] Node-graph canvas: drag, connect, configure, test-run a node
-- [ ] Workflows page (list, enable/disable, duplicate, delete)
-- [ ] Runs page + per-run trace (each step input/output/latency/status; retry; replay)
-- [ ] Connections page (services + encrypted credentials)
-- [ ] Dashboard (runs today, success/fail rate, active workflows, cost, recent failures)
+- [x] Node-graph canvas (React Flow): drag, connect, configure per-node, edge `when` guards, save, test-run
+- [x] Workflows page (list, enable/disable toggle, run, duplicate, delete, webhook URL)
+- [x] Runs page + per-run trace (each step input/output/latency/status/cost; replay)
+- [x] Connections page (encrypted header credentials; never shown again)
+- [x] Dashboard (runs today, success rate, active workflows, cost this month, recent failures)
 
 ## Phase 4 — System-design hardening
 - [ ] Rate limiting: nginx (per IP/webhook) + LLM boundary (per user)
