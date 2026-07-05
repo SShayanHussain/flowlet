@@ -42,7 +42,10 @@ describe.skipIf(!DB_URL)("api routes (real Postgres)", () => {
     process.env.JWT_ACCESS_SECRET = SECRET;
     process.env.CREDENTIALS_ENC_KEY = "api-integration-credentials-key";
     sql = postgres(DB_URL!, { max: 5 });
-    await migrate(drizzle(sql), { migrationsFolder: join(dirname(fileURLToPath(import.meta.url)), "..", "migrations") });
+    await migrate(drizzle(sql), {
+      migrationsFolder: join(dirname(fileURLToPath(import.meta.url)), "..", "migrations"),
+      migrationsTable: "__drizzle_migrations_engine",
+    });
     db = drizzle(sql, { schema }) as unknown as Db;
     auth = `Bearer ${await token()}`;
   });

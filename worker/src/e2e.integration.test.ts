@@ -47,7 +47,10 @@ describe.skipIf(!enabled)("e2e: enqueue → BullMQ worker walks the DAG", () => 
   beforeAll(async () => {
     sql = postgres(DB_URL!, { max: 10 });
     const dir = dirname(fileURLToPath(import.meta.url));
-    await migrate(drizzle(sql), { migrationsFolder: join(dir, "..", "..", "api", "migrations") });
+    await migrate(drizzle(sql), {
+      migrationsFolder: join(dir, "..", "..", "api", "migrations"),
+      migrationsTable: "__drizzle_migrations_engine",
+    });
     db = drizzle(sql, { schema });
 
     connection = new IORedis(REDIS_URL!, { maxRetriesPerRequest: null });

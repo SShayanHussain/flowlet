@@ -19,6 +19,11 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, "..", "migrations");
 
+// Engine + shell migrators share one database, so each MUST track in its own
+// table — the drizzle default (drizzle.__drizzle_migrations) would collide and
+// corrupt the other's history. Keep this in lockstep with web/scripts/migrate.mjs.
+export const MIGRATIONS_TABLE = "__drizzle_migrations_engine";
+
 function sslOptions(url) {
   const isLocal = /@(localhost|127\.0\.0\.1|db|postgres)[:/]/.test(url);
   return isLocal ? {} : { ssl: { rejectUnauthorized: false } };
@@ -31,7 +36,7 @@ function readJournal() {
 
 async function baselineIfNeeded(sql) {
   const [{ present }] = await sql`
-    SELECT to_regclass('drizzle.__drizzle_migrations') IS NOT NULL AS present
+    SELECT to_regclass('drizzle.__drizzle_migrations_engine') IS NOT NULL AS present
   `;
   if (present) {
     console.log("[migrate:engine] Drizzle tracking already present — skipping baseline.");
@@ -48,13 +53,13 @@ async function baselineIfNeeded(sql) {
   console.log(`[migrate:engine] Baselining ${journal.length} migration(s) on existing schema.`);
   await sql`CREATE SCHEMA IF NOT EXISTS drizzle`;
   await sql`
-    CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+    CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations_engine (
       id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint
     )
   `;
   for (const entry of journal) {
     await sql`
-      INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+      INSERT INTO drizzle.__drizzle_migrations_engine (hash, created_at)
       VALUES (${"baseline_" + entry.tag}, ${entry.when})
     `;
   }
@@ -69,7 +74,7 @@ async function main() {
   const sql = postgres(url, { max: 1, ...sslOptions(url) });
   try {
     await baselineIfNeeded(sql);
-    await migrate(drizzle(sql), { migrationsFolder: MIGRATIONS_DIR });
+    await migrate(drizzle(sql), { migrationsFolder: MIGRATIONS_DIR, migrationsTable: MIGRATIONS_TABLE });
     console.log("[migrate:engine] Migrations applied successfully.");
   } finally {
     await sql.end({ timeout: 5 });

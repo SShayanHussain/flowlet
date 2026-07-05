@@ -80,6 +80,7 @@ describe.skipIf(!DB_URL)("phase 2 nodes (real Postgres + local HTTP receiver)", 
     const dir = dirname(fileURLToPath(import.meta.url));
     await migrate(drizzle(sql), {
       migrationsFolder: join(dir, "..", "..", "..", "..", "api", "migrations"),
+      migrationsTable: "__drizzle_migrations_engine",
     });
     db = drizzle(sql, { schema });
 
