@@ -27,9 +27,12 @@ export interface StepJobData {
   nodeId: string;
 }
 
-/** Deterministic job id — BullMQ dedupes on it (belt to the SQL claim's suspenders). */
+/**
+ * Deterministic job id — BullMQ dedupes on it (belt to the SQL claim's suspenders).
+ * BullMQ forbids ':' in custom ids; runId is a UUID (hex + '-'), so '.' is unambiguous.
+ */
 export function stepJobId(runId: string, nodeId: string): string {
-  return `${runId}:${nodeId}`;
+  return `${runId}.${nodeId}`;
 }
 
 /** Route a node to its queue. Slow/AI steps must never occupy a fast-pool slot. */

@@ -119,3 +119,20 @@ Tradeoff: more orchestration (join nodes, enqueue-on-complete) + a second migrat
 accepted; it is the core system-design substance of the product.
 Revisit when: BullMQ-Pro groups replace the manual lease; or `runs`/`run_steps` volume forces
 partitioning (see the no-sharding entry).
+
+## [2026-07-05] Engine logic lives in packages/shared, not split across api/worker
+Context: design 03 put createRun in api/ and execution in worker/. Both sides share the
+idempotency/claim logic — drift between two implementations is a silent double-execution class.
+Decision: the whole engine (createRun, handleStepJob, fan-out, lease, node executors) is one module
+in `packages/shared/src/engine`, dependency-injected (db/queues passed in; shared opens no
+connections and does not depend on bullmq — a structural StepQueue interface keeps it light).
+api/ and worker/ are thin wiring; integration tests live in one place and exercise the real SQL.
+Tradeoff: shared grows beyond "contract types" into real logic; api/worker must version together
+(they already do — same repo, same deploy).
+Revisit when: engine needs worker-only heavy deps (e.g. an LLM SDK) → keep the executor REGISTRY
+in shared but inject heavy node implementations from worker.
+
+## [2026-07-05] Step job ids use '.' separator (BullMQ forbids ':' in custom ids)
+Context: the deterministic dedupe jobId was `runId:nodeId`; real BullMQ rejects ':' in custom ids —
+caught by the e2e test (the fake queue couldn't catch it; keep at least one real-BullMQ test).
+Decision: `runId.nodeId` — runId is a UUID (hex+'-'), so '.' is unambiguous.

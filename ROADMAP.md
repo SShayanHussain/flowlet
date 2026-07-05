@@ -10,12 +10,14 @@
 - [x] CI stub (feature→PR→develop/staging→main/prod; lint+typecheck+test gates green; 21 tests pass)
 
 ## Phase 1 — Execution engine (design + review BEFORE UI)
-- [ ] Data model: workflows, workflow_runs, run_steps, connections, idempotency_keys
-- [ ] Enqueue a run (API) → worker dequeues and walks a hardcoded 2-node DAG
-- [ ] Topological execution: node output feeds successors
-- [ ] Retries (exponential backoff; retryable vs terminal)
-- [ ] Idempotency keys (no double-execution) + **test proving it**
-- [ ] Per-user concurrency limits + separate queue for AI/slow steps + timeouts
+- [x] Design doc approved before code (`docs/03-execution-engine-design.md`)
+- [x] Data model: workflows, workflow_runs, run_steps, connections, idempotency_keys
+- [x] Enqueue a run (API) → worker dequeues and walks a hardcoded 2-node DAG (e2e test, real BullMQ)
+- [x] Topological execution: node output feeds successors (join-safe fan-out + skipped propagation)
+- [x] Retries (exponential backoff; retryable vs terminal)
+- [x] Idempotency keys (no double-execution) + **test proving it** (real-Postgres: concurrent
+      re-delivery → 1 run; diamond join fires once; duplicate output send suppressed)
+- [x] Per-user concurrency limits (crash-safe Redis lease) + separate queue for AI/slow steps + timeouts
 
 ## Phase 2 — Node types
 - [ ] Trigger nodes: webhook, cron, manual

@@ -1,24 +1,48 @@
-import { Worker } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
-import { QUEUES, QUEUE_PREFIX } from "@flowlet/shared";
+import {
+  createWorkspaceLease,
+  QUEUES,
+  type EngineQueues,
+  type LeaseRedis,
+  type StepQueue,
+} from "@flowlet/shared";
+import { db } from "./db";
 import { env } from "./env";
-import { processRun } from "./processor";
+import { makeStepProcessor } from "./processor";
 
-// BullMQ requires maxRetriesPerRequest: null on the blocking connection.
 const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
 
-// Fast queue: run orchestration + non-AI steps.
-const runsWorker = new Worker(QUEUES.RUNS, (job) => processRun(job.data), {
-  connection,
-  prefix: QUEUE_PREFIX,
-  concurrency: env.WORKER_CONCURRENCY,
+// The worker also PRODUCES: completing a step enqueues its successors.
+const runsQueue = new Queue(QUEUES.RUNS, { connection, prefix: env.QUEUE_PREFIX });
+const aiStepsQueue = new Queue(QUEUES.AI_STEPS, { connection, prefix: env.QUEUE_PREFIX });
+const queues: EngineQueues = {
+  runs: runsQueue as unknown as StepQueue,
+  aiSteps: aiStepsQueue as unknown as StepQueue,
+};
+
+// Fairness: per-workspace concurrency lease. TTL comfortably exceeds a step's
+// worst case so only a crashed worker's lease ever expires.
+const lease = createWorkspaceLease(connection as unknown as LeaseRedis, {
+  cap: env.PER_USER_CONCURRENCY,
+  ttlMs: env.STEP_TIMEOUT_MS * 2 + 30_000,
+  prefix: env.QUEUE_PREFIX,
 });
 
-// Isolated queue: slow LLM / slow-HTTP steps, so one slow call cannot starve the
-// fast pool (DECISIONS.md: separate queue + concurrency for AI/slow steps).
-const aiWorker = new Worker(QUEUES.AI_STEPS, (job) => processRun(job.data), {
+const processor = makeStepProcessor({
+  deps: { db, queues, stepTimeoutMs: env.STEP_TIMEOUT_MS },
+  lease,
+});
+
+// Two pools (design 03 §3): fast steps, and isolated AI/slow steps.
+const runsWorker = new Worker(QUEUES.RUNS, processor, {
   connection,
-  prefix: QUEUE_PREFIX,
+  prefix: env.QUEUE_PREFIX,
+  concurrency: env.WORKER_CONCURRENCY,
+});
+const aiWorker = new Worker(QUEUES.AI_STEPS, processor, {
+  connection,
+  prefix: env.QUEUE_PREFIX,
   concurrency: env.AI_QUEUE_CONCURRENCY,
 });
 
@@ -27,12 +51,15 @@ for (const [name, w] of [
   [QUEUES.AI_STEPS, aiWorker],
 ] as const) {
   w.on("ready", () => console.log(`[worker] ${name} ready`));
-  w.on("failed", (job, err) => console.error(`[worker] ${name} job ${job?.id} failed:`, err));
+  w.on("failed", (job, err) => {
+    console.error(`[worker] ${name} step ${job?.id} failed (attempt ${job?.attemptsMade}):`, err.message);
+  });
 }
 
 async function shutdown() {
   console.log("[worker] shutting down…");
   await Promise.all([runsWorker.close(), aiWorker.close()]);
+  await Promise.all([runsQueue.close(), aiStepsQueue.close()]);
   await connection.quit();
   process.exit(0);
 }
