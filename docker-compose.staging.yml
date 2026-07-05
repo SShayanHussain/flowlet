@@ -59,6 +59,9 @@ services:
       AI_QUEUE_CONCURRENCY: ${AI_QUEUE_CONCURRENCY:-5}
       PER_USER_CONCURRENCY: ${PER_USER_CONCURRENCY:-3}
       STEP_TIMEOUT_MS: ${STEP_TIMEOUT_MS:-30000}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-4-8}
+      LLM_RATE_LIMIT_PER_USER: ${LLM_RATE_LIMIT_PER_USER:-60}
     depends_on:
       redis:
         condition: service_healthy

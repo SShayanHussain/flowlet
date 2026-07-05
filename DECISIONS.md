@@ -136,3 +136,40 @@ in shared but inject heavy node implementations from worker.
 Context: the deterministic dedupe jobId was `runId:nodeId`; real BullMQ rejects ':' in custom ids —
 caught by the e2e test (the fake queue couldn't catch it; keep at least one real-BullMQ test).
 Decision: `runId.nodeId` — runId is a UUID (hex+'-'), so '.' is unambiguous.
+
+## [2026-07-05] AI step: Anthropic SDK + structured outputs, ajv as the gate (deps approved)
+Context: Phase 2 AI node. Deps @anthropic-ai/sdk (worker) + ajv (shared) approved by user.
+Decision: worker-only Anthropic client injected into the engine via `EngineDeps.llm` (shared stays
+SDK-free; api never executes steps). The call uses Messages API structured outputs
+(`output_config.format` json_schema) with the user's schema SANITIZED to the API subset
+(objects get additionalProperties:false; numeric/string bounds stripped); the engine always
+parses + ajv-validates the ORIGINAL schema and runs the repair loop (re-prompt with errors,
+terminal after N) — the API constraint is an accelerator, ajv is the guarantee. Schema the API
+rejects entirely → one fallback attempt without output_config. Model/limits env-configured
+(`LLM_MODEL` default claude-opus-4-8); no key → AI steps fail terminally (no fake results).
+Per-workspace LLM budget = fixed-window Redis counter checked BEFORE spending tokens; over
+budget → retryable backoff.
+Tradeoff: two validation layers; sanitizer must track the API's schema subset.
+Revisit when: structured outputs supports full JSON Schema → drop the sanitizer; or a second
+LLM provider is needed → add another LlmClient impl behind the same interface.
+
+## [2026-07-05] Output sends: claim-before-send, released on clean failure
+Context: claim-before-send loses the send on clean failures; send-before-claim double-sends on
+crash. Neither alone is right.
+Decision: claim the output idempotency key before sending; on a CLEAN failure (exception path)
+delete the claim and rethrow so the retry re-sends; on a crash the claim survives and suppresses
+the double-send — exactly the window it exists for. The deterministic Idempotency-Key header is
+identical across retries so receivers can dedupe the ambiguous did-it-arrive case.
+Tradeoff: receivers that ignore Idempotency-Key could double-receive when a request ambiguously
+reached them before a clean network error. Acceptable: that path requires the receiver to have
+processed a request whose response never arrived.
+
+## [2026-07-05] Cron triggers via BullMQ job schedulers; webhook tokens replace raw ids
+Context: Phase 2 trigger nodes.
+Decision: api syncs one BullMQ job scheduler per workflow (upsert/remove on create/update/
+enable/disable, keyed `wf-<id>`); worker consumes the CRON queue and calls handleCronFire, using
+the deterministic per-tick job id as the trigger idempotency key — a double-fired tick still
+yields one run, and disabled/deleted workflows are re-checked at fire time. Webhooks now route by
+an unguessable `whk_<48hex>` token column (unique) instead of the raw workflow id.
+Tradeoff: cron fires run at default 1 attempt — a failed fire (db blip) waits for the next tick
+rather than retrying. Revisit when: schedules are sparse (daily+) where a missed tick matters.

@@ -30,6 +30,9 @@ export const workflows = pgTable(
     graph: jsonb("graph").notNull(),
     enabled: boolean("enabled").notNull().default(false),
     version: integer("version").notNull().default(1),
+    // Unguessable inbound-webhook path token (whk_…). The public trigger URL is
+    // /api/webhooks/:token — never the raw workflow id.
+    webhookToken: text("webhook_token").unique(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

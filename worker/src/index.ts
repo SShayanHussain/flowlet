@@ -1,14 +1,20 @@
 import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 import {
+  createFixedWindowLimiter,
   createWorkspaceLease,
+  handleCronFire,
   QUEUES,
+  type CronFireData,
+  type EngineDeps,
   type EngineQueues,
   type LeaseRedis,
+  type RateLimitRedis,
   type StepQueue,
 } from "@flowlet/shared";
 import { db } from "./db";
 import { env } from "./env";
+import { createAnthropicLlmClient } from "./llm";
 import { makeStepProcessor } from "./processor";
 
 const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
@@ -21,6 +27,28 @@ const queues: EngineQueues = {
   aiSteps: aiStepsQueue as unknown as StepQueue,
 };
 
+// LLM client — only when configured. Absent → AI steps fail loud, never fake.
+const llm = env.LLM_API_KEY
+  ? createAnthropicLlmClient({
+      apiKey: env.LLM_API_KEY,
+      model: env.LLM_MODEL,
+      maxTokens: env.LLM_MAX_TOKENS,
+      thinking: env.LLM_THINKING,
+      inputCostPerMTok: env.LLM_INPUT_COST_PER_MTOK,
+      outputCostPerMTok: env.LLM_OUTPUT_COST_PER_MTOK,
+    })
+  : undefined;
+if (!llm) {
+  console.warn("[worker] LLM_API_KEY not set — AI steps will fail with a config error");
+}
+
+// Per-workspace LLM budget limit (distinct from nginx's per-IP webhook limit).
+const aiRateLimiter = createFixedWindowLimiter(connection as unknown as RateLimitRedis, {
+  limit: env.LLM_RATE_LIMIT_PER_USER,
+  windowSeconds: 60,
+  prefix: env.QUEUE_PREFIX,
+});
+
 // Fairness: per-workspace concurrency lease. TTL comfortably exceeds a step's
 // worst case so only a crashed worker's lease ever expires.
 const lease = createWorkspaceLease(connection as unknown as LeaseRedis, {
@@ -29,12 +57,10 @@ const lease = createWorkspaceLease(connection as unknown as LeaseRedis, {
   prefix: env.QUEUE_PREFIX,
 });
 
-const processor = makeStepProcessor({
-  deps: { db, queues, stepTimeoutMs: env.STEP_TIMEOUT_MS },
-  lease,
-});
+const deps: EngineDeps = { db, queues, stepTimeoutMs: env.STEP_TIMEOUT_MS, llm, aiRateLimiter };
+const processor = makeStepProcessor({ deps, lease });
 
-// Two pools (design 03 §3): fast steps, and isolated AI/slow steps.
+// Two step pools (design 03 §3): fast steps, and isolated AI/slow steps.
 const runsWorker = new Worker(QUEUES.RUNS, processor, {
   connection,
   prefix: env.QUEUE_PREFIX,
@@ -46,19 +72,34 @@ const aiWorker = new Worker(QUEUES.AI_STEPS, processor, {
   concurrency: env.AI_QUEUE_CONCURRENCY,
 });
 
+// Cron firings → runs. The BullMQ scheduler job id is deterministic per tick and
+// becomes the trigger idempotency key — a double fire still yields one run.
+const cronWorker = new Worker<CronFireData>(
+  QUEUES.CRON,
+  async (job) => {
+    const outcome = await handleCronFire(deps, job.data, job.id ?? `${job.data.workflowId}:${job.timestamp}`);
+    if (outcome.outcome === "skipped") {
+      console.warn(`[worker] cron fire for ${job.data.workflowId} skipped: ${outcome.reason}`);
+    }
+    return outcome;
+  },
+  { connection, prefix: env.QUEUE_PREFIX, concurrency: 2 }
+);
+
 for (const [name, w] of [
   [QUEUES.RUNS, runsWorker],
   [QUEUES.AI_STEPS, aiWorker],
+  [QUEUES.CRON, cronWorker],
 ] as const) {
   w.on("ready", () => console.log(`[worker] ${name} ready`));
   w.on("failed", (job, err) => {
-    console.error(`[worker] ${name} step ${job?.id} failed (attempt ${job?.attemptsMade}):`, err.message);
+    console.error(`[worker] ${name} job ${job?.id} failed (attempt ${job?.attemptsMade}):`, err.message);
   });
 }
 
 async function shutdown() {
   console.log("[worker] shutting down…");
-  await Promise.all([runsWorker.close(), aiWorker.close()]);
+  await Promise.all([runsWorker.close(), aiWorker.close(), cronWorker.close()]);
   await Promise.all([runsQueue.close(), aiStepsQueue.close()]);
   await connection.quit();
   process.exit(0);

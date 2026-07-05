@@ -3,8 +3,8 @@ import { db } from "./db";
 import { makeQueues } from "./queues";
 import { buildServer } from "./server";
 
-const { queues, close: closeQueues } = makeQueues(env.REDIS_URL, env.QUEUE_PREFIX);
-const app = buildServer({ db, queues });
+const { queues, cronQueue, close: closeQueues } = makeQueues(env.REDIS_URL, env.QUEUE_PREFIX);
+const app = buildServer({ db, queues, cronQueue });
 
 app
   .listen({ port: env.PORT, host: "0.0.0.0" })

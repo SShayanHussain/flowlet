@@ -111,14 +111,41 @@ describe("api server", () => {
     await app.close();
   });
 
-  it("404s a webhook for an unknown/disabled workflow", async () => {
-    const app = buildServer(ctx([]));
+  it("404s a webhook with a malformed token before touching the DB", async () => {
+    // db unusable on purpose — the token-shape check must run first.
+    const app = buildServer({ db: undefined as unknown as Db, queues: noQueues });
     const res = await app.inject({
       method: "POST",
-      url: "/api/webhooks/00000000-0000-4000-8000-000000000009",
+      url: "/api/webhooks/00000000-0000-4000-8000-000000000009", // raw ids are not tokens
       payload: { hello: 1 },
     });
     expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("404s a well-formed token that matches no enabled workflow", async () => {
+    const app = buildServer(ctx([]));
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/webhooks/whk_${"ab".repeat(24)}`,
+      payload: { hello: 1 },
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("rejects an invalid graph on update (400)", async () => {
+    const app = buildServer(ctx([{ id: "wf-1", workspaceId: "w1" }]));
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/workflows/wf-1",
+      headers: { authorization: `Bearer ${await makeToken()}` },
+      payload: {
+        graph: { nodes: [{ id: "A", type: "trigger" }], edges: [{ from: "A", to: "ghost" }] },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("INVALID_GRAPH");
     await app.close();
   });
 });

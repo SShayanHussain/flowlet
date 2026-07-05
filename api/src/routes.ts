@@ -1,14 +1,17 @@
+import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   createRun,
   err,
   GraphValidationError,
   ok,
   runSteps,
+  syncCronSchedule,
   validateGraph,
   workflowRuns,
   workflows,
+  type CronSchedulerQueue,
   type Db,
   type EngineQueues,
   type WorkflowGraph,
@@ -18,6 +21,12 @@ import { requireAuth } from "./auth";
 export interface ApiContext {
   db: Db;
   queues: EngineQueues;
+  /** Optional: cron trigger sync is skipped when absent (unit tests). */
+  cronQueue?: CronSchedulerQueue;
+}
+
+function newWebhookToken(): string {
+  return `whk_${randomBytes(24).toString("hex")}`;
 }
 
 /**
@@ -27,6 +36,11 @@ export interface ApiContext {
 export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
   const deps = { db: ctx.db, queues: ctx.queues };
   const { db } = ctx;
+
+  async function syncCron(wf: { id: string; enabled: boolean; graph: unknown }) {
+    if (!ctx.cronQueue) return;
+    await syncCronSchedule(ctx.cronQueue, wf);
+  }
 
   // --- Workflows (tenant-scoped by the verified JWT's workspaceId) ----------
   app.get("/api/workflows", { preHandler: requireAuth }, async (request) => {
@@ -58,14 +72,64 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
         name: body.name,
         graph: body.graph,
         enabled: body.enabled ?? false,
+        webhookToken: newWebhookToken(),
       })
       .returning();
+
+    try {
+      await syncCron(wf);
+    } catch {
+      return reply.code(400).send(err("INVALID_SCHEDULE", "Invalid cron expression on trigger node"));
+    }
     return reply.code(201).send(ok({ workflow: wf }));
   });
 
+  // Update name/graph/enabled. Graph changes bump `version`; in-flight runs are
+  // untouched (they execute their graph_snapshot). Cron scheduler re-synced.
+  app.patch("/api/workflows/:id", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { name?: string; graph?: WorkflowGraph; enabled?: boolean };
+
+    const [existing] = await db
+      .select()
+      .from(workflows)
+      .where(and(eq(workflows.id, id), eq(workflows.workspaceId, request.auth!.workspaceId)))
+      .limit(1);
+    if (!existing) return reply.code(404).send(err("NOT_FOUND", "Workflow not found"));
+
+    if (body.graph) {
+      try {
+        validateGraph(body.graph);
+      } catch (e) {
+        if (e instanceof GraphValidationError) {
+          return reply.code(400).send(err("INVALID_GRAPH", e.message));
+        }
+        throw e;
+      }
+    }
+
+    const [wf] = await db
+      .update(workflows)
+      .set({
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.graph !== undefined
+          ? { graph: body.graph, version: sql`${workflows.version} + 1` }
+          : {}),
+        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(workflows.id, existing.id))
+      .returning();
+
+    try {
+      await syncCron(wf);
+    } catch {
+      return reply.code(400).send(err("INVALID_SCHEDULE", "Invalid cron expression on trigger node"));
+    }
+    return ok({ workflow: wf });
+  });
+
   // --- Manual trigger --------------------------------------------------------
-  // Optional Idempotency-Key header dedupes accidental double-submits; absent →
-  // every click is a distinct trigger event by design.
   app.post("/api/workflows/:id/run", { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const [wf] = await db
@@ -98,18 +162,17 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext) {
   });
 
   // --- Inbound webhook trigger (public; rate-limited at nginx) ---------------
-  // X-Delivery-Id gives the trigger event its identity for dedupe (layer 1);
-  // absent → no dedupe, every delivery runs. Phase 2 replaces the raw workflow
-  // id in the path with an unguessable per-trigger token.
-  app.post("/api/webhooks/:workflowId", async (request, reply) => {
-    const { workflowId } = request.params as { workflowId: string };
-    if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(workflowId)) {
+  // Addressed by the workflow's unguessable token (whk_…), never the raw id.
+  // X-Delivery-Id gives the trigger event its identity for dedupe (layer 1).
+  app.post("/api/webhooks/:token", async (request, reply) => {
+    const { token } = request.params as { token: string };
+    if (!/^whk_[0-9a-f]{48}$/i.test(token)) {
       return reply.code(404).send(err("NOT_FOUND", "Unknown webhook"));
     }
     const [wf] = await db
       .select()
       .from(workflows)
-      .where(and(eq(workflows.id, workflowId), eq(workflows.enabled, true)))
+      .where(and(eq(workflows.webhookToken, token), eq(workflows.enabled, true)))
       .limit(1);
     if (!wf) return reply.code(404).send(err("NOT_FOUND", "Unknown webhook"));
 

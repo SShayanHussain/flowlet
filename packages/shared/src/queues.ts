@@ -16,6 +16,8 @@ export const QUEUE_PREFIX = process.env.QUEUE_PREFIX ?? "flowlet";
 export const QUEUES = {
   RUNS: "runs",
   AI_STEPS: "ai-steps",
+  /** Cron firings (BullMQ job schedulers) — each firing creates a run. */
+  CRON: "cron",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

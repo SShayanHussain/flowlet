@@ -99,6 +99,8 @@ export async function handleStepJob(
           db,
           runId: run.id,
           workspaceId: run.workspaceId,
+          llm: deps.llm,
+          aiRateLimiter: deps.aiRateLimiter,
         }),
       deps.stepTimeoutMs ?? 30_000
     );

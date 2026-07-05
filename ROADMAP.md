@@ -20,12 +20,13 @@
 - [x] Per-user concurrency limits (crash-safe Redis lease) + separate queue for AI/slow steps + timeouts
 
 ## Phase 2 — Node types
-- [ ] Trigger nodes: webhook, cron, manual
-- [ ] HTTP action node
-- [ ] Transform node
-- [ ] **AI step node**: prompt from upstream + declared JSON schema + validate/repair output
-- [ ] Branch/condition node (routes on AI-step JSON)
-- [ ] Output node
+- [x] Trigger nodes: webhook (unguessable `whk_` token), cron (BullMQ job schedulers, tick-deduped), manual
+- [x] HTTP action node (templated url/headers/body, connection creds decrypted at exec time, 429/5xx retry vs 4xx terminal)
+- [x] Transform node (dot-path `map` + `set` — no eval)
+- [x] **AI step node**: prompt from upstream + declared JSON schema + validate/repair output
+      (Anthropic SDK structured outputs + ajv; terminal after N repairs; per-workspace LLM rate limit; fail-loud without key)
+- [x] Branch/condition node (routes on AI-step JSON — proven by the ai→branch integration test)
+- [x] Output node (real send, Idempotency-Key header, claim released on clean failure / kept on crash)
 
 ## Phase 3 — Builder UI + surfaces
 - [ ] Node-graph canvas: drag, connect, configure, test-run a node
