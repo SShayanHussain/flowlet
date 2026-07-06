@@ -139,6 +139,11 @@ export default function RunTracePage() {
                   {meta?.label ?? step.type}
                 </Badge>
                 <div className="flex-1" />
+                {(step.output as { cached?: boolean } | null)?.cached && (
+                  <Badge variant="outline" className="text-[10px] bg-cyan-500/10 text-cyan-600 border-cyan-500/20">
+                    cached
+                  </Badge>
+                )}
                 {step.attempts > 1 && (
                   <span className="text-xs text-muted-foreground">{step.attempts} attempts</span>
                 )}

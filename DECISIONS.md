@@ -196,6 +196,30 @@ DARK node-editor canvas (`--canvas*` tokens, React Flow `colorMode="dark"`), mat
 "dark-canvas editor in a light shell"; new node-merge logo mark + indigo→cyan brand gradient.
 Tradeoff: React Flow is a sizable client dep (web only). Revisit: n/a — core to the product.
 
+## [2026-07-06] Caching (Phase 4): input-repeat AI cache + opt-in GET connector cache
+Context: PRD wants a "semantic cache on AI-step outputs where inputs repeat" + a connector cache to
+cut cost/latency on high-volume repetitive workflows. We dropped pgvector, so embedding-similarity
+caching isn't available yet.
+Decision: an `EngineCache` interface (shared) with a Redis impl (worker), injected via EngineDeps.
+ - **AI-output cache**: key = sha256(model + system + renderedPrompt + schema), tenant-scoped, TTL
+   `AI_CACHE_TTL_SEC` (default 1h). A hit returns at costCents 0 and does NOT consume the LLM rate
+   budget (checked before the limiter). Invalidation is in the KEY — any config change → new key →
+   miss (PLAYBOOK: no stale-cache ghost bugs). Opt out per node with `cache: false`.
+ - **Connector cache**: opt-in per http node via `cacheTtlSec`, GET/HEAD only (idempotent),
+   key = url + rendered headers + connectionId, tenant-scoped.
+ - Cache hits set `StepResult.cached` → stored in the step output envelope → shown as a "cached"
+   chip on the trace (PLAYBOOK: a cached result must be distinguishable from a fresh one).
+Tradeoff: this is exact-input caching, not true semantic (embedding) similarity.
+Revisit when: embeddings return → key AI cache on nearest-neighbour prompt similarity above a
+threshold, with the exact-hash as the fast path.
+
+## [2026-07-06] Rate limits: two limits, two reasons (already in place before Phase 4)
+Context: interview point — nginx per-IP/webhook vs LLM per-user protect different things.
+Decision: nginx zones (webhooks 20r/s, api 50r/s per IP) guard the edge; a per-workspace
+fixed-window Redis counter (`LLM_RATE_LIMIT_PER_USER`) at the AI-step boundary stops one tenant
+draining the shared LLM budget. Over budget → retryable backoff, not a failure.
+Revisit when: bursty-but-legitimate tenants need a token bucket with burst allowance.
+
 ## [2026-07-06] Builder UI: React Flow; web calls the Fastify api directly with the Bearer token
 Context: Phase 3 net-new UI. Node-graph canvas is the signature surface.
 Decision:

@@ -27,14 +27,47 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ApiContext) {
     await syncCronSchedule(ctx.cronQueue, wf);
   }
 
-  // List — tenant-scoped by the verified JWT's workspaceId.
+  // List — tenant-scoped by the verified JWT's workspaceId, enriched with
+  // 30-day run/success/cost aggregates per workflow (cost-per-workflow, Phase 4).
   app.get("/api/workflows", { preHandler: requireAuth }, async (request) => {
+    const ws = request.auth!.workspaceId;
     const rows = await db
       .select()
       .from(workflows)
-      .where(eq(workflows.workspaceId, request.auth!.workspaceId))
+      .where(eq(workflows.workspaceId, ws))
       .orderBy(desc(workflows.updatedAt));
-    return ok({ workflows: rows });
+
+    const statRows = await db.execute(sql`
+      SELECT workflow_id,
+        count(*) FILTER (WHERE created_at >= now() - interval '30 days')::int AS runs_30d,
+        count(*) FILTER (WHERE status = 'succeeded' AND created_at >= now() - interval '30 days')::int AS succeeded_30d,
+        count(*) FILTER (WHERE status = 'failed'    AND created_at >= now() - interval '30 days')::int AS failed_30d,
+        coalesce(sum(cost_cents) FILTER (WHERE created_at >= now() - interval '30 days'), 0)::int AS cost_30d
+      FROM workflow_runs WHERE workspace_id = ${ws} GROUP BY workflow_id
+    `);
+    const byWf = new Map(
+      (statRows as unknown as {
+        workflow_id: string;
+        runs_30d: number;
+        succeeded_30d: number;
+        failed_30d: number;
+        cost_30d: number;
+      }[]).map((r) => [r.workflow_id, r])
+    );
+
+    const enriched = rows.map((wf) => {
+      const s = byWf.get(wf.id);
+      const rated = (s?.succeeded_30d ?? 0) + (s?.failed_30d ?? 0);
+      return {
+        ...wf,
+        stats: {
+          runs30d: s?.runs_30d ?? 0,
+          costCents30d: s?.cost_30d ?? 0,
+          successRate: rated === 0 ? null : Math.round(((s?.succeeded_30d ?? 0) / rated) * 100),
+        },
+      };
+    });
+    return ok({ workflows: enriched });
   });
 
   app.get("/api/workflows/:id", { preHandler: requireAuth }, async (request, reply) => {

@@ -20,6 +20,9 @@ const envSchema = z.object({
   LLM_RATE_LIMIT_PER_USER: z.coerce.number().default(60), // requests/min per workspace
   LLM_INPUT_COST_PER_MTOK: z.coerce.number().default(5),
   LLM_OUTPUT_COST_PER_MTOK: z.coerce.number().default(25),
+
+  // Caching (Phase 4). AI-output cache default TTL; 0 disables AI caching.
+  AI_CACHE_TTL_SEC: z.coerce.number().default(3600),
 });
 
 export type Env = z.infer<typeof envSchema>;

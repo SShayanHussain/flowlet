@@ -175,6 +175,41 @@ describe.skipIf(!DB_URL)("phase 2 nodes (real Postgres + local HTTP receiver)", 
     expect(receiver.received.filter((r) => r.url === "/missing")).toHaveLength(1); // terminal, not retried
   });
 
+  it("caches a GET connector response — second run skips the call (Phase 4)", async () => {
+    const graph: WorkflowGraph = {
+      nodes: [
+        { id: "A", type: "trigger" },
+        { id: "H", type: "http", config: { url: `${baseUrl}/cached`, method: "GET", cacheTtlSec: 60 } },
+      ],
+      edges: [{ from: "A", to: "H" }],
+    };
+    const wf = await makeWorkflow(graph);
+    const store = new Map<string, string>();
+    const cache = {
+      get: async (k: string) => store.get(k) ?? null,
+      set: async (k: string, v: string) => void store.set(k, v),
+    };
+
+    async function runOnce() {
+      const { queues, added } = makeQueues();
+      const deps: EngineDeps = { db, queues, cache };
+      const { runId } = await createRun(deps, { workflow: wf, triggerType: "manual" });
+      await drain(deps, added);
+      return runId;
+    }
+
+    const r1 = await runOnce();
+    const r2 = await runOnce();
+
+    // The upstream GET is hit ONCE across both runs — the second is served from cache.
+    expect(receiver.received.filter((r) => r.url === "/cached")).toHaveLength(1);
+
+    const stepsOf = (rid: string) =>
+      db.select().from(runSteps).where(eq(runSteps.runId, rid)).then((rows) => rows.find((s) => s.nodeId === "H")!);
+    expect(((await stepsOf(r1)).output as { cached?: boolean }).cached).toBeUndefined();
+    expect(((await stepsOf(r2)).output as { cached?: boolean }).cached).toBe(true);
+  });
+
   // -------------------------------------------------------------------------
   // Output node: real send + idempotency-key header + release-on-clean-failure
   // -------------------------------------------------------------------------

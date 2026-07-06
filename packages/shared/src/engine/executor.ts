@@ -101,6 +101,10 @@ export async function handleStepJob(
           workspaceId: run.workspaceId,
           llm: deps.llm,
           aiRateLimiter: deps.aiRateLimiter,
+          cache: deps.cache,
+          modelId: deps.modelId,
+          aiCacheTtlSec: deps.aiCacheTtlSec,
+          cachePrefix: deps.cachePrefix,
         }),
       deps.stepTimeoutMs ?? 30_000
     );
@@ -114,7 +118,11 @@ export async function handleStepJob(
     .set({
       status: "succeeded",
       input: inputs,
-      output: { value: result.value, ...(result.taken ? { taken: result.taken } : {}) },
+      output: {
+        value: result.value,
+        ...(result.taken ? { taken: result.taken } : {}),
+        ...(result.cached ? { cached: true } : {}),
+      },
       costCents: result.costCents ?? 0,
       latencyMs: Date.now() - startedAt,
       finishedAt: new Date(),

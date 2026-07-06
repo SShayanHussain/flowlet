@@ -12,6 +12,7 @@ import {
   type RateLimitRedis,
   type StepQueue,
 } from "@flowlet/shared";
+import { createRedisCache } from "./cache";
 import { db } from "./db";
 import { env } from "./env";
 import { createAnthropicLlmClient } from "./llm";
@@ -57,7 +58,20 @@ const lease = createWorkspaceLease(connection as unknown as LeaseRedis, {
   prefix: env.QUEUE_PREFIX,
 });
 
-const deps: EngineDeps = { db, queues, stepTimeoutMs: env.STEP_TIMEOUT_MS, llm, aiRateLimiter };
+// Redis-backed cache: AI-output "semantic" cache + connector-response cache.
+const cache = env.AI_CACHE_TTL_SEC > 0 ? createRedisCache(connection) : undefined;
+
+const deps: EngineDeps = {
+  db,
+  queues,
+  stepTimeoutMs: env.STEP_TIMEOUT_MS,
+  llm,
+  aiRateLimiter,
+  cache,
+  modelId: env.LLM_MODEL,
+  aiCacheTtlSec: env.AI_CACHE_TTL_SEC,
+  cachePrefix: env.QUEUE_PREFIX,
+};
 const processor = makeStepProcessor({ deps, lease });
 
 // Two step pools (design 03 §3): fast steps, and isolated AI/slow steps.

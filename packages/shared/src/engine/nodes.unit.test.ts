@@ -155,3 +155,94 @@ describe("http node config validation", () => {
     ).rejects.toMatchObject({ retryable: false });
   });
 });
+
+describe("AI-output cache (Phase 4)", () => {
+  const schema = {
+    type: "object",
+    properties: { intent: { type: "string" } },
+    required: ["intent"],
+    additionalProperties: false,
+  };
+  function memCache() {
+    const store = new Map<string, string>();
+    return {
+      cache: {
+        get: async (k: string) => store.get(k) ?? null,
+        set: async (k: string, v: string) => void store.set(k, v),
+      },
+      store,
+    };
+  }
+  function aiNode(gen: LlmClient["generateStructured"], extra: Partial<StepContext>) {
+    return defaultExecutors.ai(
+      ctx({
+        node: { id: "ai1", type: "ai", config: { prompt: "Classify: {{subject}}", schema } },
+        inputs: { A: { subject: "refund please" } },
+        llm: { generateStructured: gen },
+        modelId: "test-model",
+        ...extra,
+      })
+    );
+  }
+
+  it("misses then hits: identical input serves from cache at zero cost, no second LLM call", async () => {
+    const { cache } = memCache();
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({ intent: "refund" }),
+      inputTokens: 100,
+      outputTokens: 10,
+      costCents: 3,
+    }));
+
+    const first = await aiNode(generate, { cache });
+    expect(first).toMatchObject({ value: { intent: "refund" }, costCents: 3 });
+    expect(first.cached).toBeFalsy();
+
+    const second = await aiNode(generate, { cache });
+    expect(second).toEqual({ value: { intent: "refund" }, costCents: 0, cached: true });
+    expect(generate).toHaveBeenCalledTimes(1); // ← second served from cache
+  });
+
+  it("does not consume the LLM rate budget on a cache hit", async () => {
+    const { cache } = memCache();
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({ intent: "refund" }),
+      inputTokens: 1,
+      outputTokens: 1,
+    }));
+    await aiNode(generate, { cache }); // populate
+
+    const take = vi.fn(async () => false); // budget exhausted
+    const hit = await aiNode(generate, { cache, aiRateLimiter: { take } });
+    expect(hit.cached).toBe(true);
+    expect(take).not.toHaveBeenCalled(); // cache short-circuits before the limiter
+  });
+
+  it("bypasses the cache when the node opts out (cache: false)", async () => {
+    const { cache } = memCache();
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({ intent: "refund" }),
+      inputTokens: 1,
+      outputTokens: 1,
+    }));
+    await defaultExecutors.ai(
+      ctx({
+        node: { id: "ai1", type: "ai", config: { prompt: "x", schema, cache: false } },
+        inputs: { A: {} },
+        llm: { generateStructured: generate },
+        modelId: "test-model",
+        cache,
+      })
+    );
+    await defaultExecutors.ai(
+      ctx({
+        node: { id: "ai1", type: "ai", config: { prompt: "x", schema, cache: false } },
+        inputs: { A: {} },
+        llm: { generateStructured: generate },
+        modelId: "test-model",
+        cache,
+      })
+    );
+    expect(generate).toHaveBeenCalledTimes(2); // never cached
+  });
+});

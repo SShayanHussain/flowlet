@@ -78,6 +78,12 @@ export interface WorkflowGraph {
   edges: GraphEdge[];
 }
 
+export interface WorkflowStats {
+  runs30d: number;
+  costCents30d: number;
+  successRate: number | null;
+}
+
 export interface Workflow {
   id: string;
   name: string;
@@ -87,6 +93,8 @@ export interface Workflow {
   webhookToken: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 30-day aggregates, present on the list endpoint (Phase 4). */
+  stats?: WorkflowStats;
 }
 
 export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "canceled";

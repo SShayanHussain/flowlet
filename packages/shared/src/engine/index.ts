@@ -1,3 +1,4 @@
+export * from "./cache";
 export * from "./cron";
 export * from "./deps";
 export * from "./errors";

@@ -1,6 +1,7 @@
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type * as schema from "../db/schema";
 import type { EngineQueues } from "../queues";
+import type { EngineCache } from "./cache";
 import type { AiRateLimiter, LlmClient } from "./llm";
 import type { ExecutorRegistry } from "./nodes";
 
@@ -29,4 +30,12 @@ export interface EngineDeps {
   llm?: LlmClient;
   /** Per-workspace LLM-boundary rate limiter (LLM_RATE_LIMIT_PER_USER). */
   aiRateLimiter?: AiRateLimiter;
+  /** Cache backend for AI-output + connector-response caching (Phase 4). */
+  cache?: EngineCache;
+  /** Default TTL for AI-output cache entries (seconds). */
+  aiCacheTtlSec?: number;
+  /** LLM model id — part of the AI cache key so a model change busts the cache. */
+  modelId?: string;
+  /** Prefix for cache keys (defaults to "flowlet"). */
+  cachePrefix?: string;
 }

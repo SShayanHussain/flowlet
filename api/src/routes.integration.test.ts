@@ -108,4 +108,25 @@ describe.skipIf(!DB_URL)("api routes (real Postgres)", () => {
     expect(list.json().data.connections).toHaveLength(1);
     await app.close();
   });
+
+  it("enriches the workflow list with 30-day run/cost stats (cost-per-workflow)", async () => {
+    const drizzleDb = db as unknown as ReturnType<typeof drizzle>;
+    const [wf] = await drizzleDb
+      .insert(workflows)
+      .values({ workspaceId: WS, name: "priced", graph: { nodes: [], edges: [] }, enabled: true })
+      .returning();
+    await drizzleDb.insert(workflowRuns).values([
+      { workflowId: wf.id, workspaceId: WS, workflowVersion: 1, graphSnapshot: {}, triggerType: "manual", status: "succeeded", costCents: 12 },
+      { workflowId: wf.id, workspaceId: WS, workflowVersion: 1, graphSnapshot: {}, triggerType: "manual", status: "failed" },
+    ]);
+
+    const app = buildServer({ db, queues: noQueues });
+    const res = await app.inject({ method: "GET", url: "/api/workflows", headers: { authorization: auth } });
+    expect(res.statusCode).toBe(200);
+    const [row] = res.json().data.workflows;
+    expect(row.stats.runs30d).toBe(2);
+    expect(row.stats.successRate).toBe(50);
+    expect(row.stats.costCents30d).toBe(12);
+    await app.close();
+  });
 });

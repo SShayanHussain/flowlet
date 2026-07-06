@@ -8,6 +8,7 @@ import {
   type WorkflowGraph,
 } from "../db/schema";
 import { decryptCredentials } from "../crypto";
+import { aiCacheKey, httpCacheKey, type EngineCache } from "./cache";
 import { StepError, stepErrorFromStatus, toStepError } from "./errors";
 import { evalWhen, successorsOf } from "./graph";
 import { outputIdempotencyKey } from "./keys";
@@ -33,6 +34,10 @@ export interface StepContext {
   workspaceId: string;
   llm?: LlmClient;
   aiRateLimiter?: AiRateLimiter;
+  cache?: EngineCache;
+  modelId?: string;
+  aiCacheTtlSec?: number;
+  cachePrefix?: string;
 }
 
 export interface StepResult {
@@ -41,6 +46,8 @@ export interface StepResult {
   /** Branch nodes only: successor node ids whose edges were taken. */
   taken?: string[];
   costCents?: number;
+  /** True when served from cache — recorded on the step so a hit is distinguishable. */
+  cached?: boolean;
 }
 
 export type NodeExecutor = (ctx: StepContext) => Promise<StepResult>;
@@ -119,6 +126,8 @@ const http: NodeExecutor = async (ctx) => {
     headers?: Record<string, string>;
     body?: unknown;
     connectionId?: string;
+    /** Opt-in connector-response cache TTL (seconds). GET/HEAD only. */
+    cacheTtlSec?: number;
   };
   if (!cfg.url) {
     throw new StepError(`http node '${ctx.node.id}' has no url configured`, { retryable: false });
@@ -132,6 +141,20 @@ const http: NodeExecutor = async (ctx) => {
     headers[k.toLowerCase()] = renderTemplate(v, input);
   }
   await injectConnectionHeaders(ctx, cfg.connectionId, headers);
+
+  // Connector-response cache: only for idempotent GET/HEAD, opt-in via cacheTtlSec.
+  const cacheable = ctx.cache && cfg.cacheTtlSec && (method === "GET" || method === "HEAD");
+  const cacheKey = cacheable
+    ? httpCacheKey(ctx.cachePrefix ?? "flowlet", ctx.workspaceId, {
+        url,
+        headers,
+        connectionId: cfg.connectionId,
+      })
+    : null;
+  if (cacheKey) {
+    const hit = await ctx.cache!.get(cacheKey);
+    if (hit) return { value: JSON.parse(hit), cached: true };
+  }
 
   const body =
     method === "GET" || method === "HEAD"
@@ -149,7 +172,9 @@ const http: NodeExecutor = async (ctx) => {
   const text = await response.text();
   if (!response.ok) throw stepErrorFromStatus(response.status, text);
 
-  return { value: { status: response.status, body: parseMaybeJson(text, response) } };
+  const value = { status: response.status, body: parseMaybeJson(text, response) };
+  if (cacheKey) await ctx.cache!.set(cacheKey, JSON.stringify(value), cfg.cacheTtlSec!);
+  return { value };
 };
 
 async function injectConnectionHeaders(
@@ -225,6 +250,10 @@ const ai: NodeExecutor = async (ctx) => {
     system?: string;
     schema?: Record<string, unknown>;
     maxRepairs?: number;
+    /** Opt out of the AI-output cache for this node. */
+    cache?: boolean;
+    /** Override the default AI-cache TTL (seconds). */
+    cacheTtlSec?: number;
   };
   if (!ctx.llm) {
     // Fail loud — never emit a fake AI result (PLAYBOOK Golden Rule 1).
@@ -238,15 +267,32 @@ const ai: NodeExecutor = async (ctx) => {
       retryable: false,
     });
   }
-  if (ctx.aiRateLimiter && !(await ctx.aiRateLimiter.take(ctx.workspaceId))) {
-    // Over the per-workspace LLM budget — back off and retry (not terminal).
-    throw new StepError("LLM rate limit exceeded for workspace", { retryable: true });
-  }
-
   const input = mergedInput(ctx);
   const prompt = renderTemplate(cfg.prompt, input);
   const validate = validatorFor(cfg.schema);
   const maxRepairs = cfg.maxRepairs ?? DEFAULT_MAX_REPAIRS;
+
+  // Semantic cache (input-repeat, PRD): identical model+system+prompt+schema →
+  // cached output at ZERO cost, without consuming the LLM rate budget. Any config
+  // change busts the key naturally. Opt out per node with `cache: false`.
+  const cacheKey =
+    ctx.cache && ctx.modelId && cfg.cache !== false
+      ? aiCacheKey(ctx.cachePrefix ?? "flowlet", ctx.workspaceId, {
+          model: ctx.modelId,
+          system: cfg.system,
+          prompt,
+          schema: cfg.schema,
+        })
+      : null;
+  if (cacheKey) {
+    const hit = await ctx.cache!.get(cacheKey);
+    if (hit) return { value: JSON.parse(hit), costCents: 0, cached: true };
+  }
+
+  if (ctx.aiRateLimiter && !(await ctx.aiRateLimiter.take(ctx.workspaceId))) {
+    // Over the per-workspace LLM budget — back off and retry (not terminal).
+    throw new StepError("LLM rate limit exceeded for workspace", { retryable: true });
+  }
 
   let costCents = 0;
   let lastErrors = "";
@@ -272,6 +318,9 @@ const ai: NodeExecutor = async (ctx) => {
       continue;
     }
     if (validate(parsed)) {
+      if (cacheKey) {
+        await ctx.cache!.set(cacheKey, JSON.stringify(parsed), cfg.cacheTtlSec ?? ctx.aiCacheTtlSec ?? 3600);
+      }
       return { value: parsed, costCents };
     }
     lastErrors = ajv.errorsText(validate.errors);

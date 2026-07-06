@@ -36,9 +36,10 @@
 - [x] Dashboard (runs today, success rate, active workflows, cost this month, recent failures)
 
 ## Phase 4 — System-design hardening
-- [ ] Rate limiting: nginx (per IP/webhook) + LLM boundary (per user)
-- [ ] Semantic cache on AI-step outputs; connector-response cache
-- [ ] Cost tracking per run + per workflow
+- [x] Rate limiting: nginx (per IP/webhook zones) + LLM boundary (per-workspace fixed-window)
+- [x] Semantic cache on AI-step outputs (input-repeat; model+prompt+schema key, TTL, opt-out);
+      connector-response cache (opt-in GET, keyed on url+headers); cache hits marked on the trace
+- [x] Cost tracking per run + per workflow (per-run cost rolled up; 30d cost/success in the list)
 
 ## Phase 5 — Prove it + ship
 - [ ] Load test (k6/Artillery): N concurrent triggers → queue depth, throughput, p95, zero double-exec

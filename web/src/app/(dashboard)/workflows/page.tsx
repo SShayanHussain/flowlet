@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Loader2, MoreVertical, Play, Plus, Workflow as WorkflowIcon } from "lucide-react";
-import { useApi, type Workflow } from "@/lib/api-client";
+import { centsToUsd, useApi, type Workflow } from "@/lib/api-client";
 
 export default function WorkflowsPage() {
   const api = useApi();
@@ -142,6 +142,14 @@ export default function WorkflowsPage() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {wf.graph.nodes.length} nodes · updated {new Date(wf.updatedAt).toLocaleDateString()}
+                  {wf.stats && wf.stats.runs30d > 0 && (
+                    <>
+                      {" · "}
+                      {wf.stats.runs30d} runs/30d
+                      {wf.stats.successRate !== null && ` · ${wf.stats.successRate}% ok`}
+                      {wf.stats.costCents30d > 0 && ` · ${centsToUsd(wf.stats.costCents30d)}`}
+                    </>
+                  )}
                 </p>
               </Link>
 
