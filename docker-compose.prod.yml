@@ -66,8 +66,8 @@ services:
       AI_QUEUE_CONCURRENCY: ${AI_QUEUE_CONCURRENCY:-5}
       PER_USER_CONCURRENCY: ${PER_USER_CONCURRENCY:-3}
       STEP_TIMEOUT_MS: ${STEP_TIMEOUT_MS:-30000}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-claude-opus-4-8}
+      LLM_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash}
       LLM_RATE_LIMIT_PER_USER: ${LLM_RATE_LIMIT_PER_USER:-60}
     depends_on:
       redis:
@@ -97,8 +97,8 @@ services:
   nginx:
     image: nginx:1.27-alpine
     ports:
-      - "80:80"
-      - "443:443"
+      - "8080:80"
+      - "8443:443"
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro

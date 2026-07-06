@@ -15,7 +15,7 @@ import {
 import { createRedisCache } from "./cache";
 import { db } from "./db";
 import { env } from "./env";
-import { createAnthropicLlmClient } from "./llm";
+import { createGeminiLlmClient } from "./llm";
 import { makeStepProcessor } from "./processor";
 
 const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
@@ -30,7 +30,7 @@ const queues: EngineQueues = {
 
 // LLM client — only when configured. Absent → AI steps fail loud, never fake.
 const llm = env.LLM_API_KEY
-  ? createAnthropicLlmClient({
+  ? createGeminiLlmClient({
       apiKey: env.LLM_API_KEY,
       model: env.LLM_MODEL,
       maxTokens: env.LLM_MAX_TOKENS,

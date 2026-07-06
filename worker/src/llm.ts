@@ -1,97 +1,70 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI, type Schema } from "@google/generative-ai";
 import { StepError, type LlmClient } from "@flowlet/shared";
 
 /**
- * Anthropic-backed LLM client for AI steps (design 03 §8).
+ * Gemini-backed LLM client for AI steps.
  *
- * Uses the Messages API with structured outputs (`output_config.format`) so the
+ * Uses the generateContent API with structured outputs (`responseSchema`) so the
  * model is CONSTRAINED to the node's declared JSON schema. The engine still
- * parses + ajv-validates against the user's ORIGINAL schema (including the
- * constraints the API doesn't enforce) and runs the repair loop — this client
- * only produces text, never a trusted result.
- *
- * Model/limits are env-configured (PLAYBOOK: a model retirement is a config
- * change, not a code deploy).
+ * parses + ajv-validates against the user's ORIGINAL schema.
  */
 
-export interface AnthropicLlmOptions {
+export interface GeminiLlmOptions {
   apiKey: string;
   model: string;
-  maxTokens: number;
+  maxTokens?: number;
   /** "adaptive" (default) or "off" — extraction/classification often runs fine off. */
   thinking?: "adaptive" | "off";
-  /** For cost tracking, $ per million tokens (defaults match claude-opus-4-8). */
+  /** For cost tracking, $ per million tokens. */
   inputCostPerMTok?: number;
   outputCostPerMTok?: number;
 }
 
-export function createAnthropicLlmClient(opts: AnthropicLlmOptions): LlmClient {
-  const client = new Anthropic({ apiKey: opts.apiKey });
-  const inCost = opts.inputCostPerMTok ?? 5;
-  const outCost = opts.outputCostPerMTok ?? 25;
+export function createGeminiLlmClient(opts: GeminiLlmOptions): LlmClient {
+  const ai = new GoogleGenerativeAI(opts.apiKey);
+  const inCost = opts.inputCostPerMTok ?? 0.075;
+  const outCost = opts.outputCostPerMTok ?? 0.30;
 
   return {
     async generateStructured(req) {
-      // The schema also rides in the system prompt: it guides generation on the
-      // fallback path and improves adherence even when the API constrains output.
-      const system =
-        (req.system ? `${req.system}\n\n` : "") +
-        `Respond with a single JSON object matching this JSON schema exactly:\n${JSON.stringify(req.schema)}`;
-
-      const base = {
+      const model = ai.getGenerativeModel({
         model: opts.model,
-        max_tokens: opts.maxTokens,
-        system,
-        messages: [{ role: "user" as const, content: req.prompt }],
-        ...(opts.thinking === "off" ? {} : { thinking: { type: "adaptive" as const } }),
+        systemInstruction: req.system,
+      });
+
+      const generationConfig = {
+        maxOutputTokens: opts.maxTokens,
+        responseMimeType: "application/json",
+        responseSchema: sanitizeSchemaForApi(req.schema) as unknown as Schema,
       };
 
-      let response: Anthropic.Message;
+      let response;
       try {
-        try {
-          response = await client.messages.create(
-            {
-              ...base,
-              output_config: {
-                format: {
-                  type: "json_schema",
-                  schema: sanitizeSchemaForApi(req.schema),
-                },
-              },
-            },
-            { signal: req.signal }
-          );
-        } catch (err) {
-          // The user's schema may use features the structured-outputs subset
-          // rejects (recursion, exotic keywords). Fall back to unconstrained
-          // generation — the engine's ajv validate+repair loop still gates it.
-          if (err instanceof Anthropic.BadRequestError) {
-            response = await client.messages.create(base, { signal: req.signal });
-          } else {
-            throw err;
-          }
-        }
+        const result = await model.generateContent({
+          contents: [{ role: "user", parts: [{ text: req.prompt }] }],
+          generationConfig,
+        });
+        response = result.response;
       } catch (err) {
-        throw classifyAnthropicError(err);
+        throw classifyGeminiError(err);
       }
 
-      if (response.stop_reason === "refusal") {
+      if (response.promptFeedback?.blockReason) {
         throw new StepError("LLM refused the request (safety)", { retryable: false });
       }
-      if (response.stop_reason === "max_tokens") {
+
+      // Sometimes candidates[0].finishReason is MAX_TOKENS
+      if (response.candidates?.[0]?.finishReason === "MAX_TOKENS") {
         throw new StepError(
-          `LLM output truncated at ${opts.maxTokens} tokens — raise LLM_MAX_TOKENS or simplify the schema`,
+          `LLM output truncated — raise LLM_MAX_TOKENS or simplify the schema`,
           { retryable: false }
         );
       }
 
-      const text = response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
-        .map((b) => b.text)
-        .join("");
+      const text = response.text() || "";
+      const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+      const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
 
-      const inputTokens = response.usage.input_tokens;
-      const outputTokens = response.usage.output_tokens;
       return {
         text,
         inputTokens,
@@ -102,23 +75,26 @@ export function createAnthropicLlmClient(opts: AnthropicLlmOptions): LlmClient {
   };
 }
 
-/** Map SDK exceptions onto the engine's retry taxonomy (429/5xx/network retry). */
-function classifyAnthropicError(err: unknown): StepError {
-  if (err instanceof Anthropic.RateLimitError) {
+/** Map SDK exceptions onto the engine's retry taxonomy. */
+function classifyGeminiError(err: unknown): StepError {
+  const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+
+  if (msg.includes("429") || msg.includes("quota") || msg.includes("rate limit")) {
     return new StepError("LLM provider rate limit (429)", { retryable: true, cause: err });
   }
-  if (err instanceof Anthropic.InternalServerError) {
-    return new StepError(`LLM provider error (${err.status})`, { retryable: true, cause: err });
+  if (msg.includes("500") || msg.includes("503") || msg.includes("internal error") || msg.includes("unavailable")) {
+    return new StepError(`LLM provider error (5xx)`, { retryable: true, cause: err });
   }
-  if (err instanceof Anthropic.APIConnectionError) {
+  if (msg.includes("network") || msg.includes("fetch")) {
     return new StepError("LLM connection failed", { retryable: true, cause: err });
   }
-  if (err instanceof Anthropic.APIError) {
-    return new StepError(`LLM request rejected (${err.status}): ${err.message}`, {
+  if (msg.includes("400") || msg.includes("bad request") || msg.includes("invalid argument")) {
+    return new StepError(`LLM request rejected: ${err instanceof Error ? err.message : String(err)}`, {
       retryable: false,
       cause: err,
     });
   }
+
   if (err instanceof StepError) return err;
   return new StepError(err instanceof Error ? err.message : String(err), {
     retryable: true,
@@ -126,10 +102,7 @@ function classifyAnthropicError(err: unknown): StepError {
   });
 }
 
-// Structured outputs supports a JSON-Schema subset (objects need
-// additionalProperties:false; numeric/string bounds unsupported). Strip what the
-// API rejects — the engine validates the ORIGINAL schema client-side, so nothing
-// is lost, the constraint just moves to the validate+repair loop.
+// Strip unsupported schema constraints
 const UNSUPPORTED_KEYWORDS = [
   "minimum",
   "maximum",
@@ -144,6 +117,7 @@ const UNSUPPORTED_KEYWORDS = [
   "uniqueItems",
   "minProperties",
   "maxProperties",
+  "additionalProperties",
 ] as const;
 
 export function sanitizeSchemaForApi(schema: Record<string, unknown>): Record<string, unknown> {
@@ -156,7 +130,6 @@ export function sanitizeSchemaForApi(schema: Record<string, unknown>): Record<st
       if ((UNSUPPORTED_KEYWORDS as readonly string[]).includes(k)) continue;
       obj[k] = walk(v);
     }
-    if (obj.type === "object") obj.additionalProperties = false;
     return obj;
   };
   return walk(schema) as Record<string, unknown>;

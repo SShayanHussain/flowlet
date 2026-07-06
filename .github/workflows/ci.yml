@@ -143,15 +143,56 @@ jobs:
       - name: Deploy
         run: echo "TODO: ssh → write escaped .env → docker compose -f docker-compose.staging.yml run --rm migrate → up -d. Infra not provisioned yet."
 
-  # ---------------------------------------------------------------------------
-  # 3b. Deploy to PRODUCTION on main — behind a MANUAL approval gate.
-  #     (GitHub Environment `production` with required reviewers.)
-  # ---------------------------------------------------------------------------
   deploy-production:
     needs: build-and-push
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - uses: actions/checkout@v4
+      - name: Copy compose files via scp
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "docker-compose.prod.yml,nginx/"
+          target: "/home/${{ secrets.USERNAME }}/flowlet"
       - name: Deploy
-        run: echo "TODO: ssh (timeout 30m) → write .env with \$→\$\$ escaping → compose --profile migrate pull → run --rm migrate (set -e) → up -d --remove-orphans → docker image prune -af. Infra not provisioned yet."
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          APP_URL: ${{ secrets.APP_URL || format('http://{0}', secrets.HOST) }}
+          JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          CREDENTIALS_ENC_KEY: ${{ secrets.CREDENTIALS_ENC_KEY }}
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          timeout: 30m
+          command_timeout: 30m
+          envs: DATABASE_URL,GEMINI_API_KEY,APP_URL,JWT_ACCESS_SECRET,JWT_REFRESH_SECRET,CREDENTIALS_ENC_KEY
+          script: |
+            set -e
+            cd /home/${{ secrets.USERNAME }}/flowlet
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            export IMAGE_BASE="$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+            export IMAGE_TAG="latest"
+            
+            # The sed 's/\$/$$/g' replaces $ with $$ to prevent Docker Compose from destroying passwords!
+            echo "DATABASE_URL=$(echo "$DATABASE_URL" | sed 's/\$/$$/g')" > .env
+            echo "GEMINI_API_KEY=$(echo "$GEMINI_API_KEY" | sed 's/\$/$$/g')" >> .env
+            echo "APP_URL=$(echo "$APP_URL" | sed 's/\$/$$/g')" >> .env
+            echo "JWT_ACCESS_SECRET=$(echo "$JWT_ACCESS_SECRET" | sed 's/\$/$$/g')" >> .env
+            echo "JWT_REFRESH_SECRET=$(echo "$JWT_REFRESH_SECRET" | sed 's/\$/$$/g')" >> .env
+            echo "CREDENTIALS_ENC_KEY=$(echo "$CREDENTIALS_ENC_KEY" | sed 's/\$/$$/g')" >> .env
+            echo "IMAGE_BASE=$(echo "$IMAGE_BASE" | sed 's/\$/$$/g')" >> .env
+            echo "IMAGE_TAG=$(echo "$IMAGE_TAG" | sed 's/\$/$$/g')" >> .env
+            
+            docker compose -f docker-compose.prod.yml --profile migrate pull
+            docker compose -f docker-compose.prod.yml run --rm migrate
+            docker compose -f docker-compose.prod.yml run --rm migrate-engine
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -af
