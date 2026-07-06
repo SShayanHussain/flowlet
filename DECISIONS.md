@@ -220,6 +220,20 @@ fixed-window Redis counter (`LLM_RATE_LIMIT_PER_USER`) at the AI-step boundary s
 draining the shared LLM budget. Over budget → retryable backoff, not a failure.
 Revisit when: bursty-but-legitimate tenants need a token bucket with burst allowance.
 
+## [2026-07-06] Plan gating (Phase 5) enforced at every trigger path; workspaces read-model
+Context: PRD DoD — gate active-workflow count + monthly runs per plan (Free 2/100, Pro/Team higher).
+The `plan` column lives on web/'s shell `workspaces` table, which the engine migrator does NOT own.
+Decision: a read-only `workspaces(id, plan)` model in `packages/shared/src/db/shell.ts` — a SEPARATE
+file from the engine schema.ts so `drizzle-kit generate` (which introspects only schema.ts) never
+emits a CREATE TABLE that would collide with web's. `PLAN_LIMITS` + quota helpers live in shared;
+api enforces on workflow enable (403) + manual run + webhook (429), and cron skips over-quota fires.
+Fail-safe: an unknown/missing plan → free.
+Tradeoff: enforcement is at the caller (api/cron), not inside createRun — a re-delivered webhook when
+already over quota returns 429 instead of the existing run (acceptable: over quota is over quota).
+Integration tests create the read-model table (the shell migrator doesn't run in the engine test DB).
+Revisit when: plan changes must be instant across services → push plan into the JWT (accept 15-min
+staleness) or a shared cache.
+
 ## [2026-07-06] Builder UI: React Flow; web calls the Fastify api directly with the Bearer token
 Context: Phase 3 net-new UI. Node-graph canvas is the signature surface.
 Decision:

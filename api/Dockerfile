@@ -1,20 +1,19 @@
 # Flowlet API (Fastify). Build context = repo root (needs the @flowlet/shared workspace).
 #   docker build -f api/Dockerfile -t flowlet-api .
-FROM node:20-alpine AS deps
+#
+# Single stage on purpose: the image runs TypeScript via tsx (no compiled dist to
+# keep in sync with @flowlet/shared source), so it needs the source + node_modules
+# (including any nested workspace modules). We trim the root `workspaces` to just
+# what this image needs so `npm install` doesn't pull web's Next/React tree.
+FROM node:20-alpine
 WORKDIR /app
-COPY package.json package-lock.json* ./
-COPY packages/shared/package.json ./packages/shared/
-COPY api/package.json ./api/
-RUN npm install
 
-FROM node:20-alpine AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
-COPY packages/shared ./packages/shared
+COPY package.json ./
+RUN node -e "const p=require('./package.json');p.workspaces=['api','packages/*'];require('fs').writeFileSync('./package.json',JSON.stringify(p))"
+COPY packages ./packages
 COPY api ./api
+RUN npm install --no-audit --no-fund
+
 WORKDIR /app/api
 EXPOSE 3001
-# Runs TypeScript directly via tsx — @flowlet/shared is consumed as source at MVP
-# (no separate build artifact to keep in sync). Revisit if cold-start matters.
 CMD ["npx", "tsx", "src/index.ts"]

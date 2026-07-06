@@ -83,6 +83,8 @@ describe.skipIf(!DB_URL)("phase 2 nodes (real Postgres + local HTTP receiver)", 
       migrationsTable: "__drizzle_migrations_engine",
     });
     db = drizzle(sql, { schema });
+    // Read-model of web/'s shell table (plan-gating reads workspaces.plan).
+    await sql`CREATE TABLE IF NOT EXISTS workspaces (id uuid primary key, plan text not null default 'free')`;
 
     receiver = makeReceiver();
     await new Promise<void>((resolve) => receiver.server.listen(0, "127.0.0.1", resolve));
@@ -96,7 +98,7 @@ describe.skipIf(!DB_URL)("phase 2 nodes (real Postgres + local HTTP receiver)", 
   });
 
   beforeEach(async () => {
-    await sql`TRUNCATE run_steps, workflow_runs, idempotency_keys, workflows, connections CASCADE`;
+    await sql`TRUNCATE run_steps, workflow_runs, idempotency_keys, workflows, connections, workspaces CASCADE`;
     receiver.received.length = 0;
     receiver.scripts.clear();
   });

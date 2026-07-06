@@ -1,18 +1,17 @@
 # Flowlet worker (BullMQ). Build context = repo root (needs the @flowlet/shared workspace).
 #   docker build -f worker/Dockerfile -t flowlet-worker .
-FROM node:20-alpine AS deps
+#
+# Single stage, tsx runtime — same rationale as api/Dockerfile. Trim the root
+# `workspaces` to worker + packages so the install stays lean.
+FROM node:20-alpine
 WORKDIR /app
-COPY package.json package-lock.json* ./
-COPY packages/shared/package.json ./packages/shared/
-COPY worker/package.json ./worker/
-RUN npm install
 
-FROM node:20-alpine AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
-COPY packages/shared ./packages/shared
+COPY package.json ./
+RUN node -e "const p=require('./package.json');p.workspaces=['worker','packages/*'];require('fs').writeFileSync('./package.json',JSON.stringify(p))"
+COPY packages ./packages
 COPY worker ./worker
+RUN npm install --no-audit --no-fund
+
 WORKDIR /app/worker
 # No port — the worker only consumes the queue.
 CMD ["npx", "tsx", "src/index.ts"]

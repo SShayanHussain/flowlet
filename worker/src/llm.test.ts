@@ -24,14 +24,12 @@ describe("sanitizeSchemaForApi", () => {
 
     expect(sanitizeSchemaForApi(schema)).toEqual({
       type: "object",
-      additionalProperties: false,
       properties: {
         score: { type: "number" },
         name: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
         nested: {
           type: "object",
-          additionalProperties: false,
           properties: { ok: { type: "boolean" } },
           required: ["ok"],
         },

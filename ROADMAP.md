@@ -42,9 +42,12 @@
 - [x] Cost tracking per run + per workflow (per-run cost rolled up; 30d cost/success in the list)
 
 ## Phase 5 — Prove it + ship
-- [ ] Load test (k6/Artillery): N concurrent triggers → queue depth, throughput, p95, zero double-exec
-- [ ] Artifact: with-queue vs inline comparison graph (for README/interview)
-- [ ] Dockerfiles; AWS deploy (ECS api + worker separately, RDS, Redis) + billing alarm
-- [ ] CI/CD deploys api + worker independently
-- [ ] Plan-gating (Free/Pro/Team: active-workflow count + monthly runs)
-- [ ] README: architecture, DECISIONS narrative, load-test artifact, demo
+- [x] Load test (`npm run loadtest`, dependency-free Node harness + k6 variant): N concurrent
+      webhooks → throughput, p95, queue-drain, zero drops, zero double-execution (asserts from the DB)
+- [x] Artifact: with-queue vs inline comparison table (loadtest/README.md, for README/interview)
+- [ ] Dockerfiles ✓; AWS deploy (ECS api + worker separately, RDS, Redis) + billing alarm — CI stubs
+      are wired (SHA+env tags, manual prod approval); fill host/secrets when infra is provisioned
+- [ ] CI/CD deploys api + worker independently — scaffolded in ci.yml, pending real infra
+- [x] Plan-gating (Free/Pro/Team: active-workflow count + monthly runs) — enforced on enable + every
+      trigger path (manual/webhook/cron)
+- [x] README: architecture, DECISIONS narrative, load-test artifact, feature set
