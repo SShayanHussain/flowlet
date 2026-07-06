@@ -14,19 +14,26 @@ npm run loadtest              # N=500 distinct + DUP=50 identical (defaults)
 N=2000 DUP=200 CONCURRENCY=400 npm run loadtest
 ```
 
-Example output:
+Example output (500 concurrent, local docker-on-Windows, api pool max=10):
 
 ```
 ── Throughput ─────────────────────────────
   accepted (202)      500/500
-  enqueue throughput  ~3800 req/s
-  enqueue latency     p50 4.1ms · p95 22.7ms · p99 41.0ms
-  queue drain time    3.4s
+  enqueue throughput  96 req/s · p50 1843ms · p95 2391ms · p99 2535ms
+  queue drain time    13.8s
 ── Correctness under load ─────────────────
   ✓ 500 distinct deliveries → 500 runs (no drops)
   ✓ 50 identical deliveries → 1 run (no double-execution)
   runs succeeded      501
 ```
+
+**Reading the numbers.** The two `✓` lines are the point — no drops, no
+double-execution under 500 concurrent triggers. "Enqueue" here is not a bare
+queue push: it's an atomic transaction (insert the run + one `run_steps` row per
+node + the idempotency key) before returning `202`, so latency is bound by the
+api's Postgres connection pool (`max=10` by default) under saturation, not by the
+queue. Widen the pool / put PgBouncer in front / move off Docker-on-Windows and
+throughput climbs sharply; the correctness guarantees are pool-independent.
 
 k6 variant (built-in percentile reporting), once you have a webhook token:
 

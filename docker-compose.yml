@@ -67,6 +67,7 @@ services:
       DATABASE_URL: postgresql://flowlet:flowlet@db:5432/flowlet
       REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: dev-access-secret-change-me-0123456789abc
+      CREDENTIALS_ENC_KEY: dev-credentials-key-change-me
       QUEUE_PREFIX: flowlet
     ports:
       - "3001:3001"
@@ -96,6 +97,7 @@ services:
       DATABASE_URL: postgresql://flowlet:flowlet@db:5432/flowlet
       REDIS_URL: redis://redis:6379
       QUEUE_PREFIX: flowlet
+      CREDENTIALS_ENC_KEY: dev-credentials-key-change-me
       WORKER_CONCURRENCY: 10
       AI_QUEUE_CONCURRENCY: 5
       PER_USER_CONCURRENCY: 3

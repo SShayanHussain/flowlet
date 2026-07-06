@@ -33,10 +33,14 @@ function pct(sorted, p) {
 }
 
 async function seed() {
-  // workspaces is web/'s shell table; create the read-model if the shell migrator
-  // hasn't run against this DB. Plan 'pro' so the 100-run free cap doesn't bite.
-  await sql`CREATE TABLE IF NOT EXISTS workspaces (id uuid primary key, plan text not null default 'free')`;
-  await sql`INSERT INTO workspaces (id, plan) VALUES (${WORKSPACE_ID}, 'pro')
+  // workspaces is web/'s shell table (name/slug NOT NULL). Create a compatible
+  // stand-in if the shell migrator hasn't run against this DB. Plan 'pro' so the
+  // 100-run free cap doesn't bite the burst.
+  await sql`CREATE TABLE IF NOT EXISTS workspaces (
+    id uuid primary key, name text, slug text, plan text not null default 'free'
+  )`;
+  await sql`INSERT INTO workspaces (id, name, slug, plan)
+            VALUES (${WORKSPACE_ID}, 'loadtest', 'loadtest-ws', 'pro')
             ON CONFLICT (id) DO UPDATE SET plan = 'pro'`;
   await sql`DELETE FROM workflows WHERE webhook_token = ${TOKEN}`;
   const graph = {

@@ -37,6 +37,7 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       QUEUE_PREFIX: ${QUEUE_PREFIX:-flowlet}
+      CREDENTIALS_ENC_KEY: ${CREDENTIALS_ENC_KEY}
     depends_on:
       redis:
         condition: service_healthy
@@ -55,6 +56,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: redis://redis:6379
       QUEUE_PREFIX: ${QUEUE_PREFIX:-flowlet}
+      CREDENTIALS_ENC_KEY: ${CREDENTIALS_ENC_KEY}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
       AI_QUEUE_CONCURRENCY: ${AI_QUEUE_CONCURRENCY:-5}
       PER_USER_CONCURRENCY: ${PER_USER_CONCURRENCY:-3}
