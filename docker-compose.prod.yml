@@ -26,6 +26,13 @@ services:
     profiles: ["migrate"]
     restart: "no"
 
+  migrate-engine:
+    image: ghcr.io/${IMAGE_BASE}-migrate-engine:${IMAGE_TAG:-latest}
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    profiles: ["migrate"]
+    restart: "no"
+
   api:
     image: ghcr.io/${IMAGE_BASE}-api:${IMAGE_TAG:-latest}
     environment:
@@ -57,6 +64,9 @@ services:
       AI_QUEUE_CONCURRENCY: ${AI_QUEUE_CONCURRENCY:-5}
       PER_USER_CONCURRENCY: ${PER_USER_CONCURRENCY:-3}
       STEP_TIMEOUT_MS: ${STEP_TIMEOUT_MS:-30000}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-4-8}
+      LLM_RATE_LIMIT_PER_USER: ${LLM_RATE_LIMIT_PER_USER:-60}
     depends_on:
       redis:
         condition: service_healthy

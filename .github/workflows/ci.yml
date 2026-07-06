@@ -19,6 +19,34 @@ jobs:
   # ---------------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
+    # Real Postgres + Redis so the engine's atomic-claim / no-double-execution
+    # tests exercise actual SQL atomicity (design 03 §12, approved decision D).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flowlet
+          POSTGRES_PASSWORD: flowlet
+          POSTGRES_DB: flowlet_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U flowlet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://flowlet:flowlet@localhost:5432/flowlet_test
+      TEST_REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -84,7 +112,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-web:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-web:${{ env.ENV_TAG }}
-      - name: Build & push migrate (one-shot migrator)
+      - name: Build & push migrate (shell migrator)
         uses: docker/build-push-action@v6
         with:
           context: ./web
@@ -93,6 +121,15 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-migrate:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-migrate:${{ env.ENV_TAG }}
+      - name: Build & push migrate-engine (engine migrator)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: api/Dockerfile.migrate
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-migrate-engine:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-migrate-engine:${{ env.ENV_TAG }}
 
   # ---------------------------------------------------------------------------
   # 3a. Deploy to STAGING automatically on develop.

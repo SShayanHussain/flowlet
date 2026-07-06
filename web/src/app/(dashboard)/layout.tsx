@@ -60,9 +60,9 @@ export default async function DashboardLayout({
         <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-6 border-b border-border/40 bg-background/95 px-4 sm:px-6 lg:px-8 backdrop-blur">
           <div className="flex items-center gap-3 flex-1">
             <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-sm">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-cyan-400 flex items-center justify-center text-primary-foreground shadow-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                  <path d="M7 8.2 12 14.6 17 8.2" /><circle cx="7" cy="6.6" r="1.9" fill="currentColor" stroke="none" /><circle cx="17" cy="6.6" r="1.9" fill="currentColor" stroke="none" /><circle cx="12" cy="16.4" r="1.9" fill="currentColor" stroke="none" />
                 </svg>
               </div>
               <span className="font-bold tracking-tight hidden sm:block">Flowlet</span>

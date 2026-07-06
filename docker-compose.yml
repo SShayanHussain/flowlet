@@ -33,11 +33,22 @@ services:
       timeout: 5s
       retries: 5
 
-  # --- One-shot migrator: applies shell migrations before anything starts ---
+  # --- One-shot migrators: shell (users/workspaces) + engine (workflows/runs/…) ---
   migrate:
     build:
       context: ./web
       dockerfile: Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgresql://flowlet:flowlet@db:5432/flowlet
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  migrate-engine:
+    build:
+      context: .
+      dockerfile: api/Dockerfile.migrate
     environment:
       DATABASE_URL: postgresql://flowlet:flowlet@db:5432/flowlet
     depends_on:
@@ -66,6 +77,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      migrate-engine:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
       interval: 10s
@@ -87,10 +100,15 @@ services:
       AI_QUEUE_CONCURRENCY: 5
       PER_USER_CONCURRENCY: 3
       STEP_TIMEOUT_MS: 30000
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-4-8}
+      LLM_RATE_LIMIT_PER_USER: ${LLM_RATE_LIMIT_PER_USER:-60}
     depends_on:
       redis:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      migrate-engine:
         condition: service_completed_successfully
 
   # --- Web (Next.js): SaaS shell + auth (issues JWTs) + builder/runs UI ---
@@ -113,6 +131,8 @@ services:
       redis:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      migrate-engine:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]

@@ -1,22 +1,64 @@
-import type { RunJobData } from "@flowlet/shared";
+import { DelayedError } from "bullmq";
+import {
+  DEFAULT_STEP_ATTEMPTS,
+  handleStepJob,
+  type EngineDeps,
+  type StepJobData,
+  type StepJobMeta,
+  type StepOutcome,
+  type WorkspaceLease,
+} from "@flowlet/shared";
 
-export interface RunResult {
-  runId: string;
-  status: "queued" | "running" | "succeeded" | "failed";
+/** The slice of a BullMQ Job the processor touches (fakeable in unit tests). */
+export interface StepJobLike {
+  data: StepJobData;
+  attemptsMade: number;
+  opts: { attempts?: number };
+  moveToDelayed(timestamp: number, token?: string): Promise<void>;
+}
+
+export interface ProcessorOptions {
+  deps: EngineDeps;
+  lease: WorkspaceLease;
+  /** Re-check delay when a tenant is at its concurrency cap. */
+  delayOnCapMs?: number;
+  /** Injectable for unit tests; defaults to the real engine entrypoint. */
+  handle?: (deps: EngineDeps, data: StepJobData, meta: StepJobMeta) => Promise<StepOutcome>;
 }
 
 /**
- * Execute one workflow run. Isolated from BullMQ wiring so it is unit-testable
- * without Redis.
+ * BullMQ processor wrapper: fairness first, then the engine.
  *
- * Phase 1 fills this in:
- *   - load the run + its workflow.graph (DAG)
- *   - resolve nodes in topological order, feeding each output to successors
- *   - per-step retries (retryable vs terminal) + timeouts
- *   - idempotency: skip if this (workflow, trigger event) already ran
- *   - write a run_steps trace row per node
- * For now it only acknowledges the job so the queue topology can be exercised.
+ * - Tenant at cap → job is DELAYED (not failed, no attempt consumed, no worker
+ *   slot held) and re-checked shortly — one workspace's burst can't starve others.
+ * - `retry` outcome → rethrow so BullMQ applies exponential backoff.
+ * - Lease released in finally; a crashed worker's lease expires via its TTL.
  */
-export async function processRun(data: RunJobData): Promise<RunResult> {
-  return { runId: data.runId, status: "queued" };
+export function makeStepProcessor(opts: ProcessorOptions) {
+  const handle = opts.handle ?? handleStepJob;
+
+  return async (job: StepJobLike, token?: string): Promise<StepOutcome> => {
+    const data = job.data;
+    const member = `${data.runId}:${data.nodeId}`;
+
+    const granted = await opts.lease.acquire(data.workspaceId, member);
+    if (!granted) {
+      const delay = opts.delayOnCapMs ?? 500 + Math.floor(Math.random() * 1_500);
+      await job.moveToDelayed(Date.now() + delay, token);
+      throw new DelayedError();
+    }
+
+    try {
+      const result = await handle(opts.deps, data, {
+        attemptsMade: job.attemptsMade,
+        maxAttempts: job.opts.attempts ?? DEFAULT_STEP_ATTEMPTS,
+      });
+      if (result.outcome === "retry") {
+        throw new Error(result.error); // BullMQ retries with backoff
+      }
+      return result;
+    } finally {
+      await opts.lease.release(data.workspaceId, member);
+    }
+  };
 }

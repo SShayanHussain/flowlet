@@ -15,9 +15,9 @@ export default function AuthLayout({
 
       <div className="w-full max-w-md p-4 flex flex-col items-center">
         <Link href="/" className="mb-8 font-bold text-2xl tracking-tight flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-cyan-400 flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6">
-              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+              <path d="M7 8.2 12 14.6 17 8.2" /><circle cx="7" cy="6.6" r="1.9" fill="currentColor" stroke="none" /><circle cx="17" cy="6.6" r="1.9" fill="currentColor" stroke="none" /><circle cx="12" cy="16.4" r="1.9" fill="currentColor" stroke="none" />
             </svg>
           </div>
           <span>Flowlet</span>

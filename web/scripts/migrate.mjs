@@ -41,7 +41,7 @@ function readJournal() {
 // instead of re-creating tables and aborting the deploy.
 async function baselineIfNeeded(sql) {
   const [{ present }] = await sql`
-    SELECT to_regclass('drizzle.__drizzle_migrations') IS NOT NULL AS present
+    SELECT to_regclass('drizzle.__drizzle_migrations_shell') IS NOT NULL AS present
   `;
   if (present) {
     console.log("[migrate] Drizzle tracking already present — skipping baseline.");
@@ -63,7 +63,7 @@ async function baselineIfNeeded(sql) {
   );
   await sql`CREATE SCHEMA IF NOT EXISTS drizzle`;
   await sql`
-    CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+    CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations_shell (
       id SERIAL PRIMARY KEY,
       hash text NOT NULL,
       created_at bigint
@@ -71,7 +71,7 @@ async function baselineIfNeeded(sql) {
   `;
   for (const entry of journal) {
     await sql`
-      INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+      INSERT INTO drizzle.__drizzle_migrations_shell (hash, created_at)
       VALUES (${"baseline_" + entry.tag}, ${entry.when})
     `;
   }
@@ -89,7 +89,9 @@ async function main() {
     await baselineIfNeeded(sql);
 
     const db = drizzle(sql);
-    await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    // Shell + engine migrators share one DB — each tracks in its own table so
+    // they never corrupt each other's history (see api/scripts/migrate.mjs).
+    await migrate(db, { migrationsFolder: MIGRATIONS_DIR, migrationsTable: "__drizzle_migrations_shell" });
     console.log("[migrate] Migrations applied successfully.");
   } finally {
     await sql.end({ timeout: 5 });
