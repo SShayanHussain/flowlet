@@ -22,6 +22,7 @@
     "dev:api": "npm run dev -w @flowlet/api",
     "dev:worker": "npm run dev -w @flowlet/worker",
     "db:generate": "npm run db:generate -w @flowlet/web",
-    "db:migrate": "npm run db:migrate -w @flowlet/web"
+    "db:migrate": "npm run db:migrate -w @flowlet/web",
+    "loadtest": "node loadtest/run.mjs"
   }
 }

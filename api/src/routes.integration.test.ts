@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
-import { connections, decryptCredentials, schema, workflowRuns, workflows } from "@flowlet/shared";
+import { connections, decryptCredentials, schema, workflowRuns, workflows, workspaces } from "@flowlet/shared";
 import type { Db, EngineQueues } from "@flowlet/shared";
 import { buildServer } from "./server";
 
@@ -47,6 +47,8 @@ describe.skipIf(!DB_URL)("api routes (real Postgres)", () => {
       migrationsTable: "__drizzle_migrations_engine",
     });
     db = drizzle(sql, { schema }) as unknown as Db;
+    // Read-model of web/'s shell workspaces table (plan-gating reads plan).
+    await sql`CREATE TABLE IF NOT EXISTS workspaces (id uuid primary key, plan text not null default 'free')`;
     auth = `Bearer ${await token()}`;
   });
 
@@ -55,7 +57,7 @@ describe.skipIf(!DB_URL)("api routes (real Postgres)", () => {
   });
 
   beforeEach(async () => {
-    await sql`TRUNCATE run_steps, workflow_runs, idempotency_keys, workflows, connections CASCADE`;
+    await sql`TRUNCATE run_steps, workflow_runs, idempotency_keys, workflows, connections, workspaces CASCADE`;
   });
 
   it("dashboard stats aggregate runs, rate, active workflows, and cost", async () => {
@@ -127,6 +129,57 @@ describe.skipIf(!DB_URL)("api routes (real Postgres)", () => {
     expect(row.stats.runs30d).toBe(2);
     expect(row.stats.successRate).toBe(50);
     expect(row.stats.costCents30d).toBe(12);
+    await app.close();
+  });
+
+  // --- Plan gating (Definition of Done) --------------------------------------
+  it("blocks enabling a 3rd active workflow on the free plan (403)", async () => {
+    const drizzleDb = db as unknown as ReturnType<typeof drizzle>;
+    await drizzleDb.insert(workspaces).values({ id: WS, plan: "free" });
+    const g = { nodes: [{ id: "A", type: "trigger" }], edges: [] };
+    await drizzleDb.insert(workflows).values([
+      { workspaceId: WS, name: "w1", graph: g, enabled: true },
+      { workspaceId: WS, name: "w2", graph: g, enabled: true },
+    ]);
+    const [w3] = await drizzleDb
+      .insert(workflows)
+      .values({ workspaceId: WS, name: "w3", graph: g, enabled: false })
+      .returning();
+
+    const app = buildServer({ db, queues: noQueues });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/workflows/${w3.id}`,
+      headers: { authorization: auth },
+      payload: { enabled: true },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("PLAN_LIMIT");
+    await app.close();
+  });
+
+  it("blocks a manual run once the monthly run limit is reached (429)", async () => {
+    const drizzleDb = db as unknown as ReturnType<typeof drizzle>;
+    await drizzleDb.insert(workspaces).values({ id: WS, plan: "free" });
+    const [wf] = await drizzleDb
+      .insert(workflows)
+      .values({ workspaceId: WS, name: "busy", graph: { nodes: [{ id: "A", type: "trigger" }], edges: [] }, enabled: true })
+      .returning();
+    // 100 runs this month = the free limit.
+    await sql`
+      INSERT INTO workflow_runs (workflow_id, workspace_id, workflow_version, graph_snapshot, trigger_type, status)
+      SELECT ${wf.id}::uuid, ${WS}::uuid, 1, '{}'::jsonb, 'manual', 'succeeded' FROM generate_series(1, 100)
+    `;
+
+    const app = buildServer({ db, queues: noQueues });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${wf.id}/run`,
+      headers: { authorization: auth },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(429);
+    expect(res.json().error.code).toBe("PLAN_LIMIT");
     await app.close();
   });
 });

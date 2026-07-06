@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { workflows, type WorkflowGraph } from "../db/schema";
+import { checkRunQuota } from "../plans";
 import { createRun, type CreateRunResult } from "./runs";
 import type { EngineDeps } from "./deps";
 
@@ -86,6 +87,12 @@ export async function handleCronFire(
   // Workflow deleted/disabled after the tick was scheduled — skip, never run.
   if (!wf) return { outcome: "skipped", reason: "workflow not found" };
   if (!wf.enabled) return { outcome: "skipped", reason: "workflow disabled" };
+
+  // Plan gate: a scheduled tick over the monthly run limit is skipped, not run.
+  const quota = await checkRunQuota(deps.db, wf.workspaceId);
+  if (!quota.allowed) {
+    return { outcome: "skipped", reason: `run quota exceeded (${quota.used}/${quota.limit})` };
+  }
 
   const result: CreateRunResult = await createRun(deps, {
     workflow: wf,

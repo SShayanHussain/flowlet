@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
+  checkRunQuota,
+  checkWorkflowQuota,
   createRun,
   err,
   GraphValidationError,
@@ -133,6 +135,16 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ApiContext) {
       }
     }
 
+    // Plan gate: enabling a workflow can't exceed the active-workflow limit.
+    if (body.enabled === true && !existing.enabled) {
+      const q = await checkWorkflowQuota(db, request.auth!.workspaceId);
+      if (!q.allowed) {
+        return reply
+          .code(403)
+          .send(err("PLAN_LIMIT", `Your ${q.plan} plan allows ${q.limit} active workflow(s). Disable one or upgrade.`));
+      }
+    }
+
     const [wf] = await db
       .update(workflows)
       .set({
@@ -197,6 +209,13 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ApiContext) {
       .limit(1);
     if (!wf) return reply.code(404).send(err("NOT_FOUND", "Workflow not found"));
 
+    const q = await checkRunQuota(db, request.auth!.workspaceId);
+    if (!q.allowed) {
+      return reply
+        .code(429)
+        .send(err("PLAN_LIMIT", `Your ${q.plan} plan allows ${q.limit} runs/month (used ${q.used}). Upgrade for more.`));
+    }
+
     const result = await createRun(deps, {
       workflow: wf,
       triggerType: "manual",
@@ -219,6 +238,11 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ApiContext) {
       .where(and(eq(workflows.webhookToken, token), eq(workflows.enabled, true)))
       .limit(1);
     if (!wf) return reply.code(404).send(err("NOT_FOUND", "Unknown webhook"));
+
+    const q = await checkRunQuota(db, wf.workspaceId);
+    if (!q.allowed) {
+      return reply.code(429).send(err("PLAN_LIMIT", `Monthly run limit reached (${q.limit} on the ${q.plan} plan).`));
+    }
 
     const result = await createRun(deps, {
       workflow: wf,
