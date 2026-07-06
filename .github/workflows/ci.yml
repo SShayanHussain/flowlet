@@ -131,17 +131,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-migrate-engine:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-migrate-engine:${{ env.ENV_TAG }}
 
-  # ---------------------------------------------------------------------------
-  # 3a. Deploy to STAGING automatically on develop.
-  # ---------------------------------------------------------------------------
-  deploy-staging:
-    needs: build-and-push
-    if: github.ref == 'refs/heads/develop'
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - name: Deploy
-        run: echo "TODO: ssh → write escaped .env → docker compose -f docker-compose.staging.yml run --rm migrate → up -d. Infra not provisioned yet."
 
   deploy-production:
     needs: build-and-push
