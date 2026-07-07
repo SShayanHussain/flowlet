@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: flowlet-api
+    env: node
+    buildCommand: npm install && npm run build -w @flowlet/api
+    preDeployCommand: npm run db:migrate -w @flowlet/api
+    startCommand: npm run start -w @flowlet/api
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: CREDENTIALS_ENC_KEY
+        sync: false
+
+  - type: web
+    name: flowlet-worker
+    env: node
+    buildCommand: npm install && npm run build -w @flowlet/worker
+    startCommand: npm run start -w @flowlet/worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CREDENTIALS_ENC_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

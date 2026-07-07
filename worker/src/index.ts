@@ -1,3 +1,4 @@
+import http from "node:http";
 import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 import {
@@ -111,8 +112,22 @@ for (const [name, w] of [
   });
 }
 
+// ---------------------------------------------------------------------------
+// Render Free Tier Hack: Spin up a dummy HTTP server so Render thinks this is
+// a Web Service and doesn't instantly kill the process for failing to bind to a port.
+// ---------------------------------------------------------------------------
+const port = process.env.PORT || 10000;
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Flowlet Worker is alive!\n");
+});
+server.listen(port, () => {
+  console.log(`[worker] Dummy HTTP server listening on port ${port} (for Render Free Tier)`);
+});
+
 async function shutdown() {
   console.log("[worker] shutting down…");
+  server.close();
   await Promise.all([runsWorker.close(), aiWorker.close(), cronWorker.close()]);
   await Promise.all([runsQueue.close(), aiStepsQueue.close()]);
   await connection.quit();
