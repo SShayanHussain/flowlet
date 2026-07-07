@@ -3,7 +3,7 @@ services:
     name: flowlet-api
     env: node
     plan: free
-    buildCommand: npm install && npm run build -w @flowlet/api && npm run db:migrate -w @flowlet/api
+    buildCommand: npm install --include=dev && npm run build -w @flowlet/api && npm run db:migrate -w @flowlet/api
     startCommand: npm run start -w @flowlet/api
     envVars:
       - key: NODE_ENV
@@ -23,7 +23,7 @@ services:
     name: flowlet-worker
     env: node
     plan: free
-    buildCommand: npm install && npm run build -w @flowlet/worker
+    buildCommand: npm install --include=dev && npm run build -w @flowlet/worker
     startCommand: npm run start -w @flowlet/worker
     envVars:
       - key: NODE_ENV
