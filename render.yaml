@@ -3,8 +3,7 @@ services:
     name: flowlet-api
     env: node
     plan: free
-    buildCommand: npm install && npm run build -w @flowlet/api
-    preDeployCommand: npm run db:migrate -w @flowlet/api
+    buildCommand: npm install && npm run build -w @flowlet/api && npm run db:migrate -w @flowlet/api
     startCommand: npm run start -w @flowlet/api
     envVars:
       - key: NODE_ENV
