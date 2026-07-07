@@ -2,6 +2,7 @@ services:
   - type: web
     name: flowlet-api
     env: node
+    plan: free
     buildCommand: npm install && npm run build -w @flowlet/api
     preDeployCommand: npm run db:migrate -w @flowlet/api
     startCommand: npm run start -w @flowlet/api
@@ -22,6 +23,7 @@ services:
   - type: web
     name: flowlet-worker
     env: node
+    plan: free
     buildCommand: npm install && npm run build -w @flowlet/worker
     startCommand: npm run start -w @flowlet/worker
     envVars:
