@@ -119,7 +119,7 @@ export default function DocsPage() {
               <AlertTriangle className="h-4 w-4" /> Common Mistakes
             </h3>
             <p className="text-sm text-muted-foreground mt-1">
-              <strong>Vague Schemas:</strong> Using `{ "type": "object" }` without defining `properties` allows the LLM to return unpredictable structures, breaking downstream Branch nodes. Always define strict schema properties.
+              <strong>Vague Schemas:</strong> Using <code>{`{ "type": "object" }`}</code> without defining `properties` allows the LLM to return unpredictable structures, breaking downstream Branch nodes. Always define strict schema properties.
             </p>
           </div>
         </CardContent>
