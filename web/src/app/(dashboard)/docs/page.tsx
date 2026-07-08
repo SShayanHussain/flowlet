@@ -1,6 +1,5 @@
 import React from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal, AlertTriangle, Lightbulb, Activity, Code, Bot, GitBranch, Zap } from "lucide-react";
 
 export default function DocsPage() {
@@ -13,14 +12,14 @@ export default function DocsPage() {
         </p>
       </div>
 
-      <Alert>
+      <div className="relative w-full rounded-lg border p-4 [&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground bg-muted/50 text-foreground">
         <Lightbulb className="h-4 w-4" />
-        <AlertTitle>General Best Practice</AlertTitle>
-        <AlertDescription>
+        <h5 className="mb-1 font-medium leading-none tracking-tight">General Best Practice</h5>
+        <div className="text-sm [&_p]:leading-relaxed">
           When mapping inputs to nodes, always ensure that your upstream node returns the exact JSON structure you expect.
           Failing to anticipate nested objects is a common pitfall.
-        </AlertDescription>
-      </Alert>
+        </div>
+      </div>
 
       {/* Trigger Node */}
       <Card>
