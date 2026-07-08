@@ -173,7 +173,13 @@ export default function WorkflowsPage() {
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => duplicate(wf)}>Duplicate</DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => remove(wf)} className="text-destructive">
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.preventDefault();
+                      remove(wf);
+                    }}
+                    className="text-destructive"
+                  >
                     Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>

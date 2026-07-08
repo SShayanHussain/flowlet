@@ -1,0 +1,124 @@
+\documentclass[11pt, a4paper]{article}
+
+% Required Packages
+\usepackage[left=0.75in, right=0.75in, top=0.75in, bottom=0.75in]{geometry}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{xcolor}
+
+% Custom Colors & Link Setup
+\definecolor{darkblue}{RGB}{0,0,139}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=darkblue,
+    filecolor=darkblue,      
+    urlcolor=darkblue,
+}
+
+% Formatting Section Headers
+\titleformat{\section}{\large\bfseries\uppercase}{}{0em}{}[\titlerule]
+\titlespacing{\section}{0pt}{12pt}{8pt}
+
+% Disable Paragraph Indentation
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+% ================= HEADER ================= %
+\begin{center}
+    {\huge \textbf{Shayan Hussain}} \\ \vspace{4pt}
+    Karachi, Pakistan $|$ +92 324 2123466 $|$ \href{mailto:shayanhussain268@gmail.com}{shayanhussain268@gmail.com} \\
+    \href{https://portfolio-shayan-hussain.vercel.app/}{portfolio-shayan-hussain.vercel.app} $|$ \href{https://linkedin.com/in/sshayanhussain}{linkedin.com/in/sshayanhussain} $|$ \href{https://github.com/SShayanHussain}{github.com/SShayanHussain}
+\end{center}
+
+% ================= OBJECTIVE ================= %
+\section*{Professional Summary}
+Recent Computer \& Information Systems Engineering graduate with a proven track record of deploying production-grade RAG pipelines, LLM integrations, and MLOps workflows. Seeking an Applied AI role (onsite, remote, or hybrid) to drive scalable, real-world automation through agentic systems and full-stack development.
+
+% ================= EDUCATION ================= %
+\section*{Education}
+\textbf{NED University of Engineering and Technology} \hfill Karachi, Pakistan \\
+Bachelor of Engineering in Computer and Information Systems Engineering \hfill 2022 -- 2026 \\
+\textit{CGPA: 3.556 / 4.0} $|$ \textit{Latest SGPA: 3.95 / 4.0}
+
+% ================= SKILLS ================= %
+\section*{Technical Skills}
+\begin{itemize}[leftmargin=0.15in, label={}]
+    \item \textbf{Languages:} Python, JavaScript, TypeScript, Java, C, Dart, HTML, CSS, SQL
+    \item \textbf{AI \& Machine Learning:} RAG Pipelines, LLMs, LangChain, Vector Search, MLOps, TensorFlow, PyTorch, Scikit-learn, OpenCV, YOLO, CNNs, NLP, Transformers, Reinforcement Learning, Pandas, NumPy
+    \item \textbf{Cloud \& DevOps:} AWS (EC2, RDS, S3), Docker, Containerization, Nginx, GitHub Actions (CI/CD), GHCR
+    \item \textbf{Frameworks \& Tools:} FastAPI, Next.js (App Router), React, Node.js, Celery, Drizzle ORM, TailwindCSS, shadcn/ui, Django, Flask, MERN Stack, Flutter, MCP, n8n, Git
+    \item \textbf{Databases \& Storage:} PostgreSQL, pgvector, Redis (Semantic Caching), MySQL, Supabase, SQLite
+    \item \textbf{Core Competencies:} Agentic AI, Multi-Tenancy Architecture, Production Deployment, Computer Vision, Full-Stack AI SaaS
+\end{itemize}
+
+% ================= EXPERIENCE ================= %
+\section*{Work Experience}
+
+\textbf{Shispare} \hfill Karachi, Pakistan \\
+\textit{AI Engineer (Full-time)} \hfill January 2026 -- May 2026
+\begin{itemize}[leftmargin=0.25in, itemsep=2pt]
+    \item Designed and deployed a production-grade RAG system for the Stellar LMS platform, successfully automating the generation of assessment questions from PDF course content in a live environment.
+    \item Engineered an operational Model Context Protocol (MCP) server for Pipedrive CRM within a 4-person team, automating workflows to eliminate manual effort by 50\% and achieving single-digit second response times for AI agent integrations.
+    \item Architected an agentic coding assistant via a VS Code extension, utilizing locally deployed LLMs and a centralized RAG index over Bitbucket/GitHub to ensure enterprise data privacy while accelerating developer workflows.
+    \item Optimized and deployed local LLMs, reducing inference and response times by up to 30\% to decrease API dependency and enhance internal tooling efficiency.
+\end{itemize}
+
+\textbf{10Pearls} \hfill Remote \\
+\textit{MERN Stack Intern} \hfill September 2025 -- November 2025
+\begin{itemize}[leftmargin=0.25in, itemsep=2pt]
+    \item Built a scalable, production-ready Notes Application utilizing the MERN stack with robust CRUD functionality, achieving 90\%+ test coverage through rigorous Jest unit testing.
+    \item Partnered directly with a senior engineer to execute asynchronous development cycles, managing modular feature branches via GitHub to support seamless remote delivery.
+\end{itemize}
+
+\textbf{Softech Digital Group} \hfill Hybrid \\
+\textit{Software Development Intern} \hfill September 2025 -- November 2025
+\begin{itemize}[leftmargin=0.25in, itemsep=2pt]
+    \item Contributed to the development of a React and FastAPI-based Art DRM Marketplace, successfully integrating PayPal to process secure payment gateways.
+    \item Prototyped AI-based virtual Try-On technology integration approaches, validating technical feasibility for commercial product fitting use cases.
+\end{itemize}
+
+% ================= PROJECTS ================= %
+\section*{Technical Projects}
+
+\textbf{Flowlet — AI-Native Workflow Automation Platform} \hfill \textit{2026} \\
+\textit{Next.js 14, Fastify, PostgreSQL, BullMQ, Redis, React Flow, Docker} $|$ \href{http://flowlet-automate.vercel.app/}{Live Demo} $|$ \href{https://github.com/SShayanHussain/flowlet}{GitHub}
+\begin{itemize}[leftmargin=0.25in, itemsep=2pt]
+    \item Architected a distributed, multi-tenant AI workflow automation engine utilizing Next.js, Fastify, and BullMQ, enabling users to visually compose complex \textit{trigger $\rightarrow$ AI-step $\rightarrow$ branch} pipelines.
+    \item Engineered a highly concurrent job execution worker pool featuring 3-layer idempotency and crash-safe fairness leases, guaranteeing exactly-once execution and maintaining a flat $\sim$20ms p95 enqueue latency under 500+ concurrent burst loads.
+    \item Implemented robust backend hardening, including Nginx edge rate-limiting (50 req/s), per-workspace LLM cost tracking, and an AI output cache that eliminated 100\% of redundant API token costs for duplicate inputs.
+    \item Validated system reliability through an automated load-testing artifact, achieving 96 req/s sustained throughput and seamlessly draining 500 concurrent triggers in under 14 seconds with zero dropped runs or double-executions.
+\end{itemize}
+
+\textbf{Deflekt — Multi-Tenant AI Support Deflection SaaS} \hfill \textit{2026} \\
+\textit{AWS EC2/RDS, Next.js 14, FastAPI, pgvector, Redis, Celery, Docker} $|$ \href{http://54.208.178.218/}{Live Demo} $|$ \href{https://github.com/SShayanHussain/deflekt}{GitHub}
+\begin{itemize}[leftmargin=0.25in, itemsep=2pt]
+    \item Architected a multi-tenant RAG platform using Next.js 14, Python FastAPI, PostgreSQL (pgvector), and Redis, reducing repetitive support ticket volume by 70\% with cited, grounded answers.
+    \item Engineered a sub-18ms Redis semantic cache cutting duplicate LLM query latency by 98.5\% and scaled single-instance AWS EC2 throughput to 150+ req/sec (cached) and 45+ req/sec (streaming RAG), supporting 10,000+ daily active users.
+    \item Deployed an async Celery worker queue processing ~1,200 words/sec for document ingestion and built an automated CI/CD pipeline on AWS EC2/RDS with an LLM-as-a-Judge eval harness gating builds on >80\% Faithfulness precision.
+    \item Enforced strict database-level multi-tenancy isolation and an automated confidence gate (<0.72) that escalates low-confidence queries to human support with <0.8\% hallucination rate.
+\end{itemize}
+
+\textbf{RoboComm: Smart Interactive Campus Robot} \hfill \textit{2025 -- Present}
+\begin{itemize}[leftmargin=0.25in, itemsep=2pt]
+    \item Built an autonomous campus assistant using a custom ESP32 chassis integrated with an MPU6050 (heading estimation) and HC-SR04 (obstacle detection), achieving a navigation accuracy of 85\%.
+    \item Deployed real-time YOLO object detection maintaining 25--30 FPS and integrated the Gemini API for natural language STT/TTS interaction, enabling voice-driven campus navigation.
+\end{itemize}
+
+\textbf{Voice-Enabled Booking Automation System} \hfill \textit{2026}
+\begin{itemize}[leftmargin=0.25in, itemsep=2pt]
+    \item Architected a zero-touch conversational agent utilizing Make.com workflows to orchestrate Calendly, Google Calendar, and OpenAI APIs, streamlining the booking lifecycle to a sub-5-minute process and successfully processing 100+ automated user interactions.
+\end{itemize}
+
+\textbf{Anomaly Detector Computer Vision Pipeline} \hfill \textit{2026}
+\begin{itemize}[leftmargin=0.25in, itemsep=2pt]
+    \item Developed an end-to-end MLOps pipeline (hand-annotating 1,500 images via CVAT and augmenting via Roboflow) to train an RT-DETR-L model with a frozen backbone, achieving 88\% accuracy and a peak mAP of 0.650 for anomaly detection on unseen datasets.
+\end{itemize}
+
+\textbf{Remote Work Productivity Tracker} \hfill \textit{2026}
+\begin{itemize}[leftmargin=0.25in, itemsep=2pt]
+    \item Trained a behavioral classification model on a custom, annotated screen-recording dataset of 1,000 hours to track verified work hours with 80\% accuracy, building a real-time Next.js/Node.js analytics dashboard for administrative oversight.
+\end{itemize}
+
+\end{document}

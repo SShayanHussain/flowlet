@@ -206,3 +206,12 @@ docker compose -f docker-compose.prod.yml exec <svc> sh -c 'echo ${KEY:0:4}...' 
 Order of suspicion, based on history: upstream service logs → env/secret transport → TLS/managed
 service boundary → retired/renamed model API → stale cache → actual code bug. It was almost never
 the code you just wrote.
+
+---
+
+## 9. Flowlet Engine & UI Gotchas
+
+- **Exactly-Once Execution (Webhook Storms):** Simply checking a database before processing a webhook isn't enough under high concurrency. Use 3-layer idempotency: Webhook Token Validation $\rightarrow$ Atomic `pending` $\rightarrow$ `queued` updates $\rightarrow$ Deduplication Ledger.
+- **Base UI Click Handlers & Modals:** When using Base UI's `DropdownMenuItem` or similar components with blocking native actions like `window.confirm()`, always use `e.preventDefault()` inside `onClick`. Failing to do so allows the menu to close instantly, unmounting the component and silently swallowing the API request.
+- **Decoupled Workers:** Keep the HTTP API ingestion loop $O(1)$ fast. Immediately enqueue tasks to BullMQ (or similar) and return HTTP 200. Let a separate background Node.js worker pool handle DAG traversal and slow external API/LLM calls.
+- **Crash-Safe Fairness Leases:** To prevent one heavy tenant from starving a shared BullMQ queue, implement a concurrency limit using Redis leases (e.g. max 5 concurrent jobs per tenant). Crash-safe TTLs are crucial here to avoid deadlocks if a worker dies mid-job.

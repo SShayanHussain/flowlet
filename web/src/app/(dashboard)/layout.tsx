@@ -10,6 +10,7 @@ import {
   ListChecks,
   Plug,
   Settings,
+  BookOpen,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -50,6 +51,7 @@ export default async function DashboardLayout({
     { href: "/builder", icon: PencilRuler, label: "Builder" },
     { href: "/runs", icon: ListChecks, label: "Runs" },
     { href: "/connections", icon: Plug, label: "Connections" },
+    { href: "/docs", icon: BookOpen, label: "Docs" },
     { href: "/settings/profile", icon: Settings, label: "Settings" },
   ];
 

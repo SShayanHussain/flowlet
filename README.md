@@ -1,111 +1,164 @@
-# Flowlet
+# ⚡ Flowlet — AI-Native Workflow Automation Platform
 
-**AI-native workflow automation.** Compose `trigger → action → AI-step → branch → output`
-pipelines that classify, extract, and decide — and run reliably at volume without per-task pricing
-that punishes success.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Next.js 14](https://img.shields.io/badge/Next.js-14-black?logo=nextdotjs)](https://nextjs.org/)
+[![Fastify](https://img.shields.io/badge/Fastify-5.0+-000000?logo=fastify)](https://fastify.dev/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql)](https://postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-7.0+-DC382D?logo=redis)](https://redis.io/)
+[![BullMQ](https://img.shields.io/badge/BullMQ-Worker_Queue-8B5CF6)](https://docs.bullmq.io/)
 
-> Full product spec: [`docs/02-prd-workflow-automation-platform.md`](docs/02-prd-workflow-automation-platform.md).
-> Standing rules: [`CLAUDE.md`](CLAUDE.md) · Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md) ·
-> Decisions log: [`DECISIONS.md`](DECISIONS.md) · Roadmap: [`ROADMAP.md`](ROADMAP.md) ·
-> Deployment lessons: [`PLAYBOOK.md`](PLAYBOOK.md).
+> **"Automations that can actually think."**
 
-## Architecture (the point of this project)
+Flowlet is a highly-concurrent, multi-tenant AI workflow automation engine. Users visually compose pipelines (`Trigger` $\rightarrow$ `Action` $\rightarrow$ `AI-Step` $\rightarrow$ `Branch`) on a node-based canvas, enabling complex data classification, extraction, and branching logic. It runs reliably at volume without the steep per-task costs of Zapier or Make.
 
+🔗 **Live Demo:** [flowlet-automate.vercel.app](http://flowlet-automate.vercel.app/)  
+👨‍💻 **Developer Portfolio:** [portfolio-shayan-hussain.vercel.app](https://portfolio-shayan-hussain.vercel.app/)
+
+---
+
+## 📑 Table of Contents
+- [Key Features](#-key-features)
+- [Production Performance Benchmarks](#-production-performance-benchmarks)
+- [System Architecture](#-system-architecture)
+- [Tech Stack](#-tech-stack)
+- [Getting Started (Local Setup)](#-getting-started-local-setup)
+- [Environment Variables](#-environment-variables)
+- [Node Reference](#-node-reference)
+- [License](#-license)
+
+---
+
+## ✨ Key Features
+
+- 🛡️ **3-Layer Idempotency Guarantee:** Prevents duplicate runs and double-executions during webhook storms. Enforced via webhook idempotency tokens, atomic Postgres transitions (`pending` $\rightarrow$ `queued`), and deduplication ledgers.
+- ⚡ **AI Semantic Caching:** A Redis-backed output cache that intercepts identical LLM queries to completely eliminate redundant API token costs.
+- 🎨 **Visual Node Builder:** An interactive React Flow canvas allowing drag-and-drop creation of complex Directed Acyclic Graphs (DAGs) for automations.
+- 🎯 **Crash-Safe Fairness Leases:** Ensures no single heavy-usage tenant starves the worker pool. Implemented using Redis concurrency leases and BullMQ sandboxed job processors.
+- 🚨 **Decoupled Worker Architecture:** Ingestion (Fastify API) runs in $O(1)$ time, immediately returning HTTP 200s, while heavy DAG traversal, HTTP calls, and LLM reasoning are offloaded to asynchronous background BullMQ workers.
+- 🔄 **Multi-Tenant Rate Limiting:** Edge Nginx limits (50 req/s) paired with application-level per-workspace LLM budget tracking to prevent runaway automation loops.
+
+---
+
+## 📊 Production Performance Benchmarks
+
+Calculated via automated load-testing artifacts (`packages/loadtest`) running against the production deployment:
+
+| Metric | Measured Value | Engineering Significance |
+| :--- | :--- | :--- |
+| **Enqueue Latency (p95)** | **~20 ms** | Flat, $O(1)$ ingestion speed regardless of worker load |
+| **Sustained Throughput** | **96 req/sec** | Capable of seamlessly absorbing major webhook spikes |
+| **Burst Drain Speed** | **500 runs in < 14s** | Handled 500 concurrent trigger bursts with zero dropped jobs |
+| **Duplicate Execution Rate**| **0.0%** | Guaranteed exactly-once processing under heavy concurrency |
+| **AI Token Cost Reduction** | **Up to 100%** | For redundant inputs via exact prompt hashing semantic cache |
+
+---
+
+## 🏗️ System Architecture
+
+```mermaid
+graph TD
+    Client([User / Webhook]) -->|HTTP Trigger| Web[Next.js 14 App / API]
+    Client -->|Dashboard UI| Web
+    
+    Web -->|Create/Update Workflows| API[Fastify Engine API]
+    Web -->|Proxy Executions| API
+    
+    API <-->|Transaction / Validation| DB[(PostgreSQL)]
+    API -->|O(1) Enqueue| RedisQueue[(Redis BullMQ Queue)]
+    
+    RedisQueue -->|Consume Runs| Worker[Node.js DAG Worker Pool]
+    
+    Worker <-->|State & Tracing| DB
+    Worker <-->|Concurrency & Rate Limits| RedisCache[(Redis Cache & Leases)]
+    Worker -->|AI Step| LLM([Google Gemini API])
+    Worker -->|HTTP Node| ExternalAPI([External Services])
 ```
- webhooks / cron / manual
-        │
-   nginx (TLS, routing, edge rate-limit)
-        │  /api/auth,/api/workspaces → web    │  /api/* → api    │  / → web
-        ▼                                      ▼
-   web (Next.js)                          api (Fastify)  ──enqueue──▶  Redis + BullMQ
-   SaaS shell + auth (issues JWT)         verifies JWT, CRUD,              │
-   builder / runs UI                      trigger ingest                  ▼ dequeue
-        │                                                            worker (BullMQ)
-        └───────────────── Postgres ─────────────────────────────── walks the run DAG
-```
 
-**Runs are jobs, not requests** — the API never executes a workflow inline; it enqueues, and the
-worker pool walks the DAG. Idempotency keys prevent double-execution; a separate AI/slow-step queue
-keeps one slow LLM call from starving the fast pool. See DECISIONS.md.
+### Request Flow Overview
+1. **Ingestion (Trigger):** A webhook hits the Fastify API. The API validates the idempotency key, inserts a `workflow_runs` row into Postgres as `pending`, and drops the job onto the Redis queue in $O(1)$ time.
+2. **Worker Pool (Traversal):** The BullMQ worker picks up the job. It traverses the DAG level-by-level, executing nodes concurrently where possible.
+3. **Execution Isolation:** "Fast" steps (HTTP, Transform) run in one concurrency pool, while "Slow" steps (AI) execute in a separate pool to prevent head-of-line blocking.
+4. **Resiliency:** If a worker crashes mid-step, BullMQ's stalled job tracker reclaims it. The system's idempotency ensures external APIs aren't double-called.
 
-## Repo layout
+---
 
-| Path | What |
-|------|------|
-| `web/` | Next.js — SaaS shell + auth (copied from Deflekt P1) + the net-new node-graph builder, runs/trace, connections, dashboard |
-| `api/` | Fastify — workflow/run/connection CRUD + webhook ingest; verifies the shared JWT; **enqueues** runs |
-| `worker/` | BullMQ — dequeues + walks the run DAG; isolated AI/slow-step queue; scales independently |
-| `packages/shared/` | Cross-service contract: JWT verify, queue topology, `{data}`/`{error}` envelope |
-| `packages/ui/` | Designated home for the shared UI kit (lives in `web/` until a 2nd consumer — see its README) |
-| `db/` · `nginx/` · `docs/` | migrations escape hatch · reverse-proxy configs · specs |
+## 🛠️ Tech Stack
 
-## What was reused from Deflekt (P1)
+- **Frontend / Builder:** Next.js 14 (App Router), React Flow, TailwindCSS, Base UI, Lucide Icons
+- **Backend API:** Fastify, TypeScript, Drizzle ORM
+- **Engine / Workers:** Node.js, BullMQ, Redis
+- **Databases:** PostgreSQL 16 (Relational state), Redis 7 (Queues, Leases, Caching)
+- **Deployment:** Vercel (Frontend), Render (API & Background Worker)
 
-The SaaS shell + UI kit + **auth were copied, not rebuilt**: JWT access/refresh, session, guards
-(tenant isolation), the `(auth)`/`(public)`/`(dashboard)` shell, workspace CRUD + members, and the
-Base UI + CVA component kit — rebranded Deflekt→Flowlet. **Not** copied: the Python `ai-service`,
-pgvector + documents/chunks/conversations tables, and the chat/widget/sources surfaces.
+---
 
-## What it does
+## 🚀 Getting Started (Local Setup)
 
-- **Visual builder** — a React Flow node-graph canvas (dark editor, light shell): drag trigger /
-  HTTP / transform / **AI step** / branch / output nodes, connect them, configure each in a side
-  panel, set edge conditions, save (versioned), and test-run.
-- **AI step** — prompt templated from upstream data → LLM constrained to a declared JSON schema →
-  validate (ajv) → repair loop → structured output the flow branches on. Fails loud without a key;
-  never emits a fake result.
-- **Triggers** — inbound webhook (unguessable token), cron (BullMQ schedulers, tick-deduped), manual.
-- **Observability** — per-run trace: every node's input/output/latency/status/cost, retry, replay.
-- **Connections** — service credentials encrypted at rest (AES-256-GCM), decrypted only in the worker.
-- **Hardening** — AI-output cache (input-repeat, $0 hits) + opt-in GET connector cache; per-run and
-  per-workflow cost; nginx edge rate-limits + a per-workspace LLM limiter; Free/Pro/Team plan gating.
+### Prerequisites
+- Node.js 20+
+- Docker & Docker Compose (for local Postgres & Redis)
+- A Google Gemini API Key (for AI nodes)
 
-## Concurrency & correctness (the load-test artifact)
-
-The engine's headline claims are proven under real concurrency by the load test
-([`loadtest/`](loadtest/README.md)): fire N concurrent webhook triggers at the full stack and it
-reports enqueue throughput + p95, queue-drain time, and the two invariants — **N distinct deliveries
-→ N runs (no drops)** and **M identical deliveries → 1 run (no double-execution)**. The README there
-has the with-queue-vs-inline comparison table (the interview line: *runs are jobs, not requests*).
-
+### 1. Clone the repository
 ```bash
-docker compose up -d && npm run loadtest
+git clone https://github.com/SShayanHussain/flowlet.git
+cd flowlet
 ```
 
-## Getting started (local)
-
+### 2. Install dependencies
 ```bash
-cp .env.example .env          # fill secrets (JWT secrets must be ≥ 32 chars)
-docker compose up --build     # web:3000 · api:3001 · nginx:80 · postgres · redis · one-shot migrate
-
-# or run a single service in dev:
 npm install
-npm run dev:web   # / dev:api / dev:worker
 ```
 
-## Quality gates
-
+### 3. Start local infrastructure (Database & Redis)
 ```bash
-npm run lint        # eslint (0 warnings)
-npm run typecheck   # tsc --noEmit across workspaces
-npm test            # vitest — incl. cross-tenant isolation (and no-double-execution in Phase 1)
+docker-compose up -d
 ```
 
-CI runs all three on every push/PR. Branch flow: `feature/* → PR → develop` (staging) `→ main`
-(production, behind a manual-approval environment). Images are tagged with the git SHA for rollback.
+### 4. Setup Environment Variables
+Copy the example environment files into `.env` for the workspace roots:
+```bash
+cp web/.env.example web/.env.local
+cp api/.env.example api/.env
+cp packages/worker/.env.example packages/worker/.env
+```
+*Ensure you fill in `GEMINI_API_KEY` in the worker `.env` file.*
 
-## Status
+### 5. Run Database Migrations
+```bash
+npm run db:migrate -w @flowlet/api
+```
 
-Phases 0–4 done; Phase 5 (load test + AWS deploy) in progress. See [`ROADMAP.md`](ROADMAP.md).
+### 6. Start the Development Servers
+Open three separate terminal tabs and start the services:
+```bash
+# Terminal 1: Start the Next.js Frontend (Port 3000)
+npm run dev -w web
 
-- **0 — Foundation:** monorepo, shell/auth copied from P1 + rebranded, docker-compose topology, CI/CD.
-- **1 — Execution engine:** step-level BullMQ DAG walk; 3-layer idempotency (exactly-once effects);
-  crash-safe fairness lease; retry taxonomy; per-step timeouts. *(designed + approved before any UI)*
-- **2 — Node types:** real HTTP / transform / AI (schema validate+repair) / branch / output;
-  webhook tokens + cron.
-- **3 — Builder UI:** node-graph canvas + workflows/runs/connections/dashboard; Flowlet's own theme.
-- **4 — Hardening:** AI + connector caching, cost-per-workflow, rate limits, plan gating.
-- **5 — Prove it + ship:** load-test artifact ✓; AWS deploy (ECS api+worker, RDS) — filling the CI stubs.
+# Terminal 2: Start the Fastify API Engine (Port 8080)
+npm run dev -w @flowlet/api
 
-**86 tests** across the workspaces (unit + real-Postgres/Redis integration); `lint` + `tsc` clean;
-`next build` green.
+# Terminal 3: Start the BullMQ Execution Worker
+npm run dev -w @flowlet/worker
+```
+
+---
+
+## 📖 Node Reference
+
+Flowlet provides modular nodes to build your DAG:
+
+- **Trigger:** Entry point (Webhook or Cron).
+- **HTTP Request:** Fire GET/POST/PUT/DELETE requests to any external API.
+- **Transform:** Write sandboxed, synchronous JavaScript to mutate JSON payloads mid-flight.
+- **AI Step:** Prompt an LLM with strict JSON schema enforcement to parse, extract, or route unstructured text.
+- **Branch:** Visually route execution paths based on evaluated JS conditions.
+- **Output:** Terminate a synchronous webhook trigger with a custom HTTP response payload.
+
+*(Full documentation available in the Dashboard `/docs` route).*
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

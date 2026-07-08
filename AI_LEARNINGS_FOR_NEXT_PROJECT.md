@@ -39,3 +39,8 @@
 
 ---
 *Created automatically to preserve institutional knowledge from the Deflekt MVP.*
+
+## 5. Flowlet AI Execution Learnings
+- **Strict JSON Schema Enforcement (`ajv`):** When building AI output nodes that upstream logic branches on, a vague instruction is not enough. You must pass a strict JSON Schema to the LLM and validate the output structurally. Otherwise, unpredictable formats will break subsequent routing logic.
+- **Exact Prompt Hashing (Semantic Caching):** For identical inputs flowing through an AI step, hash the complete expanded prompt and use it as a Redis cache key to avoid duplicate LLM calls, effectively reducing redundant token costs by 100%.
+- **Isolated AI Execution Pools:** AI steps are inherently slow (often multi-second TTFT). If they run in the same worker pool as fast HTTP/Transform steps, they will cause head-of-line blocking. Dedicate a separate BullMQ queue/worker pool strictly for LLM processing to maintain overall system throughput.
