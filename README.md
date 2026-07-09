@@ -57,19 +57,19 @@ Calculated via automated load-testing artifacts (`packages/loadtest`) running ag
 
 ```mermaid
 flowchart TD
-    Client([User / Webhook]) -->|HTTP Trigger| Web[Next.js 14 App / API]
+    Client([User or Webhook]) -->|HTTP Trigger| Web[Next.js 14 App API]
     Client -->|Dashboard UI| Web
     
-    Web -->|Create/Update Workflows| API[Fastify Engine API]
+    Web -->|Create or Update Workflows| API[Fastify Engine API]
     Web -->|Proxy Executions| API
     
-    API -->|Transaction / Validation| DB[(PostgreSQL)]
-    API -->|O(1) Enqueue| RedisQueue[(Redis BullMQ Queue)]
+    API -->|Transaction and Validation| DB[(PostgreSQL)]
+    API -->|Fast Enqueue| RedisQueue[(Redis BullMQ Queue)]
     
     RedisQueue -->|Consume Runs| Worker[Node.js DAG Worker Pool]
     
-    Worker -->|State & Tracing| DB
-    Worker -->|Concurrency & Rate Limits| RedisCache[(Redis Cache & Leases)]
+    Worker -->|State and Tracing| DB
+    Worker -->|Concurrency and Rate Limits| RedisCache[(Redis Cache and Leases)]
     Worker -->|AI Step| LLM([Google Gemini API])
     Worker -->|HTTP Node| ExternalAPI([External Services])
 ```
