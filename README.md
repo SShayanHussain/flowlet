@@ -56,7 +56,7 @@ Calculated via automated load-testing artifacts (`packages/loadtest`) running ag
 ## 🏗️ System Architecture
 
 ```mermaid
-graph TD
+flowchart TD
     Client([User / Webhook]) -->|HTTP Trigger| Web[Next.js 14 App / API]
     Client -->|Dashboard UI| Web
     
