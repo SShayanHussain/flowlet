@@ -63,13 +63,13 @@ flowchart TD
     Web -->|Create/Update Workflows| API[Fastify Engine API]
     Web -->|Proxy Executions| API
     
-    API <-->|Transaction / Validation| DB[(PostgreSQL)]
+    API -->|Transaction / Validation| DB[(PostgreSQL)]
     API -->|O(1) Enqueue| RedisQueue[(Redis BullMQ Queue)]
     
     RedisQueue -->|Consume Runs| Worker[Node.js DAG Worker Pool]
     
-    Worker <-->|State & Tracing| DB
-    Worker <-->|Concurrency & Rate Limits| RedisCache[(Redis Cache & Leases)]
+    Worker -->|State & Tracing| DB
+    Worker -->|Concurrency & Rate Limits| RedisCache[(Redis Cache & Leases)]
     Worker -->|AI Step| LLM([Google Gemini API])
     Worker -->|HTTP Node| ExternalAPI([External Services])
 ```
