@@ -14,6 +14,7 @@ import {
   type WorkflowGraph,
 } from "@flowlet/shared";
 import { requireAuth } from "../auth";
+import { env } from "../env";
 import type { ApiContext } from "./index";
 
 function newWebhookToken(): string {
@@ -222,6 +223,11 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ApiContext) {
       triggerPayload: request.body ?? {},
       deliveryId: request.headers["idempotency-key"] as string | undefined,
     });
+
+    if (env.WORKER_URL) {
+      fetch(env.WORKER_URL).catch((err) => console.error("[api] Failed to wake worker:", err.message));
+    }
+
     return reply.code(202).send(ok({ runId: result.runId, deduplicated: !result.created }));
   });
 
@@ -250,6 +256,11 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ApiContext) {
       triggerPayload: request.body ?? {},
       deliveryId: request.headers["x-delivery-id"] as string | undefined,
     });
+
+    if (env.WORKER_URL) {
+      fetch(env.WORKER_URL).catch((err) => console.error("[api] Failed to wake worker:", err.message));
+    }
+
     return reply.code(202).send(ok({ runId: result.runId, deduplicated: !result.created }));
   });
 }

@@ -13,6 +13,7 @@ const envSchema = z.object({
   // Shared with web/ — api verifies the tokens web issues.
   JWT_ACCESS_SECRET: z.string().min(32, "Secret must be at least 32 chars"),
   QUEUE_PREFIX: z.string().default("flowlet"),
+  WORKER_URL: z.string().url().optional(),
   // Connection-credential encryption (AES-256-GCM). api encrypts on create;
   // worker decrypts at step execution. Same key both sides.
   CREDENTIALS_ENC_KEY: z.string().min(1, "CREDENTIALS_ENC_KEY is required"),

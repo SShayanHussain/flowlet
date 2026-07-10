@@ -9,6 +9,7 @@ import {
   workflows,
 } from "@flowlet/shared";
 import { requireAuth } from "../auth";
+import { env } from "../env";
 import type { ApiContext } from "./index";
 
 export function registerRunRoutes(app: FastifyInstance, ctx: ApiContext) {
@@ -76,6 +77,11 @@ export function registerRunRoutes(app: FastifyInstance, ctx: ApiContext) {
       triggerType: "manual",
       triggerPayload: run.triggerPayload ?? {},
     });
+
+    if (env.WORKER_URL) {
+      fetch(env.WORKER_URL).catch((err) => console.error("[api] Failed to wake worker:", err.message));
+    }
+
     return reply.code(202).send(ok({ runId: result.runId }));
   });
 }

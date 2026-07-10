@@ -192,7 +192,8 @@ export function BuilderCanvas({ initial }: { initial?: Workflow }) {
         {webhookUrl && (
           <button
             onClick={() => {
-              navigator.clipboard?.writeText(`${window.location.origin}${webhookUrl}`);
+              const apiBase = process.env.NEXT_PUBLIC_API_URL || window.location.origin;
+              navigator.clipboard?.writeText(`${apiBase}${webhookUrl}`);
               toast.success("Webhook URL copied");
             }}
             className="text-xs text-muted-foreground font-mono hover:text-foreground truncate max-w-[240px]"
