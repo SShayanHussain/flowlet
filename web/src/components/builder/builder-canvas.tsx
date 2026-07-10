@@ -199,7 +199,7 @@ export function BuilderCanvas({ initial }: { initial?: Workflow }) {
             className="text-xs text-muted-foreground font-mono hover:text-foreground truncate max-w-[240px]"
             title="Copy webhook URL"
           >
-            {webhookUrl}
+            {`${process.env.NEXT_PUBLIC_API_URL || window.location.origin}${webhookUrl}`}
           </button>
         )}
         <Button variant="outline" onClick={save} disabled={saving}>
